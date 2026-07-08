@@ -54,11 +54,49 @@
   #speedbar button.active { background:#2a3a5c; border-color:rgba(244,239,226,.25); color:#ffe9a8; }
   #periodlabel { font-size:11px; margin-top:3px; color:#ffd98a; opacity:.85; font-style:italic; }
   #beatticker {
-    position:absolute; bottom:58px; left:16px; z-index:20; max-width:470px;
+    position:absolute; bottom:58px; left:16px; z-index:20; max-width:520px; display:flex; align-items:baseline;
     background:rgba(16,22,38,.78); border-left:3px solid #c9a227; padding:8px 12px;
     color:#f0e9d8; font-family:Georgia,serif; font-size:13px; font-style:italic;
     opacity:0; transition:opacity .6s; border-radius:2px;
   }
+  #chronicle { position:absolute; top:64px; right:16px; bottom:64px; width:320px; z-index:19; background:rgba(243,237,222,.94); border:1px solid #b8a888; border-radius:3px; display:flex; flex-direction:column; font-family:Georgia,serif; transition:transform .3s; }
+  #chronicle.closed { transform:translateX(296px); }
+  #chronhead { display:flex; justify-content:space-between; padding:7px 10px; border-bottom:1px solid #c8b898; font-weight:bold; color:#2b2320; font-size:13px; letter-spacing:1px; }
+  #chronhead button { background:none; border:1px solid #a89878; border-radius:2px; color:#2b2320; cursor:pointer; font-size:11px; margin-left:6px; font-family:Tahoma,sans-serif; }
+  #chronlist { overflow-y:auto; flex:1; padding:8px 10px; }
+  .chronyear { font-weight:bold; font-size:12px; color:#7a5a28; border-bottom:1px solid #c8b898; margin:10px 0 6px; padding-bottom:2px; letter-spacing:1px; }
+  .chronentry { font-size:12px; color:#2b2320; margin-bottom:9px; line-height:1.45; cursor:pointer; }
+  .chronentry:hover { background:rgba(201,162,39,.15); }
+  .chrondate { font-size:10px; color:#8a7a5a; font-style:italic; }
+  #inspector { position:absolute; top:64px; left:16px; width:302px; max-height:72vh; overflow-y:auto; z-index:21; background:rgba(243,237,222,.96); border:1px solid #b8a888; border-radius:3px; padding:0 0 10px; font-family:Tahoma,Verdana,sans-serif; color:#2b2320; }
+  .inshead { font-family:Georgia,serif; font-size:15px; padding:9px 12px; border-left:5px solid #c9a227; border-bottom:1px solid #c8b898; margin-bottom:8px; }
+  .inshead b { font-size:17px; margin-right:4px; }
+  .insnick { font-style:italic; font-size:11px; color:#7a6a4a; margin-left:6px; }
+  .insclose { float:right; background:none; border:none; font-size:16px; cursor:pointer; color:#7a6a4a; }
+  .insrow { display:flex; align-items:center; font-size:11px; padding:2px 12px; }
+  .insrow span { width:86px; }
+  .insbar { flex:1; height:8px; background:rgba(0,0,0,.12); border-radius:2px; }
+  .insbar i { display:block; height:100%; border-radius:2px; }
+  .insline { font-size:11px; padding:3px 12px; }
+  .insstrikes { color:#8a2a1a; font-weight:bold; font-size:12px; padding:4px 12px; }
+  .insdark { color:#5a4a3a; font-style:italic; padding:8px 12px; font-size:12px; }
+  .insparty { font-size:11px; padding:4px 12px; color:#7a5a28; }
+  .insbtn { margin:6px 12px; font-size:11px; cursor:pointer; background:#2a3a5c; color:#e8e2d2; border:1px solid rgba(0,0,0,.2); border-radius:2px; padding:4px 10px; }
+  .insroster { padding:2px 12px; }
+  .insclassyr { font-size:10px; font-weight:bold; color:#7a5a28; text-transform:uppercase; letter-spacing:1px; margin-top:6px; }
+  .insnames { font-size:11px; line-height:1.5; }
+  #actsbar { position:absolute; right:16px; bottom:14px; z-index:22; width:224px; background:rgba(16,22,38,.85); border:1px solid rgba(244,239,226,.18); border-radius:3px; font-family:Tahoma,Verdana,sans-serif; }
+  #actshead { padding:6px 10px; color:#ffd98a; font-size:12px; cursor:pointer; letter-spacing:1px; }
+  #actsbar.closed #actslist, #actsbar.closed #actshint { display:none; }
+  #actslist { display:flex; flex-direction:column; padding:0 8px 8px; }
+  #actslist button { margin:2px 0; text-align:left; background:#22304e; border:1px solid rgba(244,239,226,.14); color:#e8e2d2; font-size:11px; padding:5px 8px; cursor:pointer; border-radius:2px; font-family:inherit; }
+  #actslist button:hover { background:#31436b; }
+  #actshint { color:#ffd98a; font-size:10px; padding:0 10px 8px; font-style:italic; }
+  #compositeov { position:absolute; inset:0; z-index:40; background:rgba(10,12,20,.82); display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; overflow:auto; }
+  #compositeov canvas { max-width:92vw; max-height:86vh; box-shadow:0 12px 60px rgba(0,0,0,.6); }
+  #comphint { color:#cfd4de; font-size:11px; margin-top:10px; font-family:Tahoma,sans-serif; }
+  .chip { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:8px; }
+  .watch #seedbox, .watch #speedbar, .watch #hint, .watch #actsbar, .watch #chronicle, .watch #inspector { display:none !important; }
   #hint {
     position:absolute; bottom:14px; right:16px; z-index:20; text-align:right;
     color:rgba(244,239,226,.66); font-size:11px; font-family:Tahoma,Verdana,sans-serif;
@@ -1372,13 +1410,19 @@ function bindInput(dom){
   dom.addEventListener('pointerdown', e=>{
     CAM.dragging = (e.button===2 || e.shiftKey) ? 2 : 1;
     CAM.lastX = e.clientX; CAM.lastY = e.clientY;
+    CAM.moved = 0;
     dom.setPointerCapture(e.pointerId);
   });
-  dom.addEventListener('pointerup', e=>{ CAM.dragging=0; });
+  dom.addEventListener('pointerup', e=>{
+    CAM.dragging=0;
+    if ((CAM.moved||0) < 7 && typeof clickWorld === 'function') clickWorld(e.clientX, e.clientY);
+  });
   dom.addEventListener('pointermove', e=>{
     if (!CAM.dragging) return;
     const dx = e.clientX-CAM.lastX, dy = e.clientY-CAM.lastY;
     CAM.lastX=e.clientX; CAM.lastY=e.clientY;
+    CAM.moved = (CAM.moved||0) + Math.abs(dx) + Math.abs(dy);
+    if (CAM.moved > 6 && typeof dirSuspend === 'function') dirSuspend();
     if (CAM.dragging===1){
       CAM.tyaw -= dx*0.005;
       CAM.tpitchOff = clamp(CAM.tpitchOff - dy*0.0035, -0.6, 0.45);
@@ -1394,6 +1438,7 @@ function bindInput(dom){
   dom.addEventListener('wheel', e=>{
     e.preventDefault();
     CAM.tdist = clamp(CAM.tdist*Math.exp(e.deltaY*0.0011), CFG.CAM_MIN, CFG.CAM_MAX);
+    if (typeof dirSuspend === 'function') dirSuspend();
   }, { passive:false });
   // touch pinch
   const tp = {};
@@ -1417,6 +1462,13 @@ function bindInput(dom){
     if (e.key==='3') CLOCK.speed='semester';
     if (e.key==='4') CLOCK.speed='saga';
     if (e.key==='5' || e.key.toLowerCase()==='a') CLOCK.speed='documentary';
+    if (e.key.toLowerCase()==='c') watchToggle();
+    if (e.key.toLowerCase()==='d') DIR.on = !DIR.on;
+    if (e.key==='Escape'){
+      if (typeof ACTS!=='undefined'){ ACTS.pending=null; actHint(''); }
+      if (typeof PICK!=='undefined' && PICK.el) PICK.el.style.display='none';
+      const ov = document.getElementById('compositeov'); if (ov) ov.remove();
+    }
     if (typeof hud2Refresh==='function') hud2Refresh();
   });
 }
@@ -1492,8 +1544,9 @@ function updateHUD(){
   const h12 = ((d.hh+11)%12)+1;
   const mm = d.mm<10?'0'+d.mm:d.mm;
   document.getElementById('hudDate').textContent = DOW[d.dow]+', '+MONTHS[d.month]+' '+d.dayInMonth;
-  const yr = (WORLD.classYear + d.year);
-  document.getElementById('hudTime').textContent = h12+':'+mm+' '+ampm+' · '+['fall','fall','fall','winter','winter','winter','spring','spring','spring','spring','summer','summer'][d.month]+' · 20'+(yr<10?'0'+yr:yr);
+  const acadStart = 2000 + WORLD.classYear - 4 + d.year;
+  const calYr = d.month < 4 ? acadStart : acadStart + 1;   // Sept–Dec vs Jan–Aug
+  document.getElementById('hudTime').textContent = h12+':'+mm+' '+ampm+' · '+['fall','fall','fall','winter','winter','winter','spring','spring','spring','spring','summer','summer'][d.month]+' · '+calYr;
 }
 
 // ==== §18 BOOT ==============================================================
@@ -1512,7 +1565,7 @@ function boot(){
   document.getElementById('seedVal').textContent = seed;
   initRNG(seed);
   NOISE_SEED = xmur3(seed+'::noise')();
-  WORLD.classYear = 1 + (xmur3(seed)() % 7); // the remembering class: '01–'07
+  WORLD.classYear = 3 + (xmur3(seed)() % 6); // the remembering class: '03–'08 → year one falls 1999–2004
   document.getElementById('subtitle').textContent = "as remembered by the Class of '0" + WORLD.classYear;
   // start on a Friday evening in mid-September, golden hour
   CLOCK.t = (11)*TICKS_PER_DAY + Math.floor(17.5*4); // day 12 of September = Friday (day 11, 0-indexed, %7 = 4 → Friday)
@@ -1543,6 +1596,8 @@ function boot(){
     ['planting the oaks…', ()=>{ for (const m of buildTrees()) R.scene.add(m); R.scene.add(buildCars()); }],
     ['hanging the porch lights…', ()=>{
       navBuild(); simCollectPOIs(); dynInit(); hud2Init(); beatTickerInit();
+      chronInit(); pickInit(); actsInit();
+      DIR.suspendUntil = performance.now()/1000 + 14;   // let the postcard breathe first
       const d0 = CLOCK.derive();
       SIM.period = calPeriod(d0.dayAbs % DAYS_PER_YEAR);
       primeWeekend();
@@ -1605,6 +1660,7 @@ function animate(ts){
   updateHUD();
   hud2Tick();
   beatTickerUpdate(dt);
+  dirUpdate(ts/1000, dt);
   dynUpdate(dt, ts/1000);
   R.renderer.render(R.scene, R.camera);
 }
@@ -2406,18 +2462,15 @@ function evPush(type, pri, site, beat, opts){
   if (EV.queue.length > 400) EV.queue.splice(0, 100);
   if (opts.lore){
     const d = CLOCK.derive();
-    EV.chronicle.push({
+    const entry = {
       t: CLOCK.t, year: d.year, type,
       date: DOW[d.dow]+', '+MONTHS[d.month]+' '+d.dayInMonth,
       text: opts.lore, site,
-    });
+    };
+    EV.chronicle.push(entry);
+    if (typeof CHRON !== 'undefined' && CHRON.list) chronAppend(entry);
   }
-  // beat ticker (phase 3 minimal; the director takes over in phase 4)
-  if (pri >= 2 && EV.beatEl){
-    EV.beatEl.textContent = beat;
-    EV.beatEl.style.opacity = 1;
-    EV.beatTimer = 9;
-  }
+  if (pri >= 3 && EV.beatEl && typeof beatCardShow === 'function' && SIM.effRate <= 200) beatCardShow(e);
   return e;
 }
 function beatTickerInit(){
@@ -2841,6 +2894,521 @@ SIM.hash = function(){
   }
   return ('0000000' + h.toString(16)).slice(-8);
 };
+
+// ==== §15 AUTO-DIRECTOR =====================================================
+// Reads the event bus, never writes sim state. Films the campus like a
+// documentary crew that knows where the story is.
+const DIR = {
+  on: true, holdUntil: 0, current: null, currentPri: 0,
+  cooldowns: {}, suspendUntil: 0, pushTarget: 0, orbit: 0.02,
+};
+const DIR_COOL = { NOISE: 70, FIGHT: 90, LEGEND: 45, COPS: 40, STREAK: 60, ALARM: 60, PARTYEND: 120, BIDDAY: 30, GRADES: 60, INITIATION: 40, GREEKWEEK: 0, FANCYDRESS: 0, STRIKE: 0, CHARTER: 0, RECHARTER: 0, LEASE: 0, GRADUATION: 30, DEANWALK: 0, PAVILION: 0, MONEY: 60 };
+function dirShotFor(e){
+  switch(e.type){
+    case 'CHARTER': case 'LEASE': case 'RECHARTER':
+      return { dist: 480, push: 260, hold: 16, pitch: -0.2 };
+    case 'FANCYDRESS': case 'GREEKWEEK': case 'GRADUATION':
+      return { dist: 380, push: 220, hold: 15, pitch: -0.3 };
+    case 'BIDDAY':
+      return { dist: 300, push: 160, hold: 13, pitch: -0.35 };
+    case 'STRIKE': case 'COUCH': case 'PAVILION':
+      return { dist: 260, push: 120, hold: 14, pitch: -0.3 };
+    default:
+      return { dist: 240, push: 100, hold: 11, pitch: -0.32 };
+  }
+}
+function dirTakeShot(e, rt){
+  DIR.current = e; DIR.currentPri = e.pri;
+  const shot = dirShotFor(e);
+  DIR.holdUntil = rt + shot.hold;
+  DIR.pushTarget = shot.push;
+  DIR.orbit = 0.015 + Math.random()*0.02;
+  CAM.tfx = clamp(e.site[0], -820, 820);
+  CAM.tfz = clamp(e.site[1], -820, 820);
+  CAM.tdist = shot.dist;
+  CAM.tpitchOff = shot.pitch;
+  CAM.tyaw = CAM.yaw + (Math.random()-0.5)*0.8;
+  beatCardShow(e);
+  if (DIR_COOL[e.type]) DIR.cooldowns[e.type] = rt + DIR_COOL[e.type];
+}
+const IDLE_SPOTS = [
+  [60,-150,'the Colonnade'], [40,-40,'the Row'], [-140,290,'downtown Lexford'],
+  [150,585,'the pole houses'], [620,-70,'LMI'], [-560,-190,'Generals Field'],
+  [344,104,'Sorority Row'], [-330,44,'Davidson Green'],
+];
+function dirIdle(rt){
+  const d = CLOCK.derive();
+  let spot;
+  const live = SIM.parties.filter(p=>p.state==='DOORS'||p.state==='PEAK');
+  if (live.length && (d.hour>=20 || d.hour<2)){
+    const p = live[Math.floor(Math.random()*live.length)];
+    spot = [p.porch[0], p.porch[1], p.venueName];
+  } else {
+    spot = IDLE_SPOTS[Math.floor(Math.random()*IDLE_SPOTS.length)];
+  }
+  DIR.current = null; DIR.currentPri = 0;
+  DIR.holdUntil = rt + 13 + Math.random()*6;
+  DIR.pushTarget = 0;
+  DIR.orbit = (Math.random()<0.5?-1:1) * (0.012 + Math.random()*0.015);
+  CAM.tfx = spot[0]; CAM.tfz = spot[1];
+  CAM.tdist = 260 + Math.random()*280;
+  CAM.tpitchOff = -0.25 - Math.random()*0.2;
+  beatCardIdle();
+}
+function dirUpdate(rt, dt){
+  if (!DIR.on || rt < DIR.suspendUntil) return;
+  // hunt for the best unseen beat
+  let best = null;
+  for (const e of EV.queue){
+    if (e._seen || e.pri < 2) continue;
+    if (CLOCK.t - e.t > 8) { e._seen = true; continue; }      // stale (>2 sim-hours)
+    if (DIR.cooldowns[e.type] && rt < DIR.cooldowns[e.type]) { e._seen = true; continue; }
+    if (!best || e.pri > best.pri) best = e;
+  }
+  if (best && (best.pri > DIR.currentPri + 0.5 || rt > DIR.holdUntil)){
+    best._seen = true;
+    dirTakeShot(best, rt);
+    return;
+  }
+  if (rt > DIR.holdUntil) { dirIdle(rt); return; }
+  // in-shot motion: slow orbit + push-in
+  CAM.tyaw += DIR.orbit * dt;
+  if (DIR.pushTarget > 0 && CAM.tdist > DIR.pushTarget){
+    CAM.tdist = Math.max(DIR.pushTarget, CAM.tdist * (1 - 0.25*dt));
+  }
+}
+function dirSuspend(){ DIR.suspendUntil = performance.now()/1000 + 45; }
+
+// beat card (lower third)
+function beatCardShow(e){
+  if (!EV.beatEl) return;
+  const h = e.house ? houseByKey(e.house) : null;
+  EV.beatEl.innerHTML = '';
+  const chip = document.createElement('span');
+  chip.className = 'chip';
+  chip.style.background = h ? '#'+h.frat.color.toString(16).padStart(6,'0') : '#c9a227';
+  const txt = document.createElement('span');
+  txt.textContent = e.beat;
+  EV.beatEl.appendChild(chip); EV.beatEl.appendChild(txt);
+  EV.beatEl.style.opacity = 1;
+  EV.beatTimer = 10;
+}
+function beatCardIdle(){
+  if (EV.beatTimer <= 0 && EV.beatEl) EV.beatEl.style.opacity = 0;
+}
+
+// ==== §14b CHRONICLE PANEL ==================================================
+const CHRON = { el: null, list: null, lastYear: -1, autoscroll: true, count: 0 };
+function chronInit(){
+  const el = document.createElement('div');
+  el.id = 'chronicle'; el.className = 'ui';
+  el.innerHTML = '<div id="chronhead"><span>The Chronicle</span><span>'+
+    '<button id="chronexport" title="download the annals as text">save</button>'+
+    '<button id="chrontoggle">&#8250;</button></span></div><div id="chronlist"></div>';
+  document.body.appendChild(el);
+  CHRON.el = el;
+  CHRON.list = el.querySelector('#chronlist');
+  el.querySelector('#chrontoggle').onclick = ()=>{
+    el.classList.toggle('closed');
+    el.querySelector('#chrontoggle').innerHTML = el.classList.contains('closed') ? '&#8249;' : '&#8250;';
+  };
+  el.querySelector('#chronexport').onclick = chronExport;
+  CHRON.list.addEventListener('scroll', ()=>{
+    CHRON.autoscroll = CHRON.list.scrollTop + CHRON.list.clientHeight > CHRON.list.scrollHeight - 60;
+  });
+  for (const c of EV.chronicle) chronAppend(c);
+}
+function chronYearLabel(y){
+  const startYr = 2000 + WORLD.classYear - 4 + y;
+  const a = (startYr%100).toString().padStart(2,'0');
+  const b = ((startYr+1)%100).toString().padStart(2,'0');
+  return "’"+a+" – ’"+b;
+}
+function chronAppend(c){
+  if (!CHRON.list) return;
+  if (c.year !== CHRON.lastYear){
+    CHRON.lastYear = c.year;
+    const hd = document.createElement('div');
+    hd.className = 'chronyear';
+    hd.textContent = 'The year of ' + chronYearLabel(c.year);
+    CHRON.list.appendChild(hd);
+  }
+  const div = document.createElement('div');
+  div.className = 'chronentry';
+  div.innerHTML = '<div class="chrondate">'+c.date+'</div><div>'+c.text+'</div>';
+  div.onclick = ()=>{
+    if (c.site){ CAM.tfx = c.site[0]; CAM.tfz = c.site[1]; CAM.tdist = 180; dirSuspend(); }
+  };
+  CHRON.list.appendChild(div);
+  CHRON.count++;
+  while (CHRON.list.children.length > 400) CHRON.list.removeChild(CHRON.list.firstChild);
+  if (CHRON.autoscroll) CHRON.list.scrollTop = CHRON.list.scrollHeight;
+}
+function chronExport(){
+  const d = CLOCK.derive();
+  const lines = ['THE ROW — as remembered by the Class of ’0'+WORLD.classYear,
+    'seed '+WORLD.seed+' · '+(EV.chronicle.length)+' entries · exported in year '+(d.year+1), ''];
+  let lastY = -1;
+  for (const c of EV.chronicle){
+    if (c.year !== lastY){ lastY = c.year; lines.push('', '======== The year of '+chronYearLabel(c.year)+' ========', ''); }
+    lines.push('['+c.date+']  '+c.text);
+  }
+  const blob = new Blob([lines.join('\n')], { type:'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'the_row_chronicle.txt';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+
+// ==== §17c PICKING & INSPECTOR =============================================
+const PICK = { el: null, targets: [], mode: null };
+function pickInit(){
+  const el = document.createElement('div');
+  el.id = 'inspector'; el.className = 'ui';
+  el.style.display = 'none';
+  document.body.appendChild(el);
+  PICK.el = el;
+  // pickables: greek houses, rentals, campus buildings
+  for (const h of WORLD.houses) PICK.targets.push({ x:h.lot.x, z:h.lot.z, r: 26, kind:'house', ref:h });
+  for (const s of WORLD.sororities) PICK.targets.push({ x:s.lot.x, z:s.lot.z, r: 22, kind:'sorority', ref:s });
+  for (const r of WORLD.rentals) PICK.targets.push({ x:r.lot.x, z:r.lot.z, r: 20, kind:'rental', ref:r });
+  PICK.targets.push({ x:-688, z:474, r: 34, kind:'pavilion', ref:null });
+}
+const _v3 = null;
+function pickAt(clientX, clientY){
+  const v = new THREE.Vector3();
+  let best = null, bd = 44;
+  for (const t of PICK.targets){
+    v.set(t.x, H(t.x, t.z)+6, t.z);
+    v.project(R.camera);
+    if (v.z > 1) continue;
+    const sx = (v.x*0.5+0.5)*window.innerWidth;
+    const sy = (-v.y*0.5+0.5)*window.innerHeight;
+    const dpx = Math.hypot(sx-clientX, sy-clientY);
+    const distW = Math.sqrt(dist2(t.x, t.z, CAM.fx, CAM.fz));
+    const tol = clamp(2600/Math.max(60,CAM.dist)*t.r, 18, 90);
+    if (dpx < Math.min(bd, tol)){ bd = dpx; best = t; }
+  }
+  return best;
+}
+function barRow(label, val, max, color){
+  const pct = clamp(val/max*100, 2, 100);
+  return '<div class="insrow"><span>'+label+'</span><div class="insbar"><i style="width:'+pct+'%;background:'+(color||'#c9a227')+'"></i></div></div>';
+}
+function inspectHouse(h){
+  const d = CLOCK.derive();
+  const st = h.stats;
+  const strikes = activeStrikes(h, d.dayAbs);
+  const col = '#'+h.frat.color.toString(16).padStart(6,'0');
+  let html = '<div class="inshead" style="border-color:'+col+'"><b>'+h.frat.letters+'</b> '+h.frat.name+
+    '<span class="insnick">'+h.frat.nick+'</span><button class="insclose">×</button></div>';
+  if (h.dark){
+    html += '<div class="insdark">CHARTER REVOKED — the house stands dark'+
+      (h.darkSinceDay?' since the year of '+chronYearLabel(Math.floor(h.darkSinceDay/DAYS_PER_YEAR)):'')+'.</div>';
+  } else {
+    html += barRow('prestige', st.prestige, 100) + barRow('brotherhood', st.brotherhood, 100, '#7ba3c9')
+      + barRow('social', st.social, 100, '#c75d7a') + barRow('GPA', st.gpa, 4, '#6fae7c')
+      + '<div class="insline">treasury $'+Math.round(st.funding)+' · Dean’s attention '+(st.scrutiny<20?'low':st.scrutiny<40?'elevated':'INTENSE')+'</div>';
+    if (strikes>0) html += '<div class="insstrikes">'+'&#9888;'.repeat(strikes)+' '+strikes+' strike'+(strikes>1?'s':'')+
+      (isDry(h, d.dayAbs) ? ' — DRY until further notice' : '')+'</div>';
+    if (h.leases.length){
+      html += '<div class="insline">leases: '+h.leases.map(id=>{ const r=WORLD.rentals.find(x=>x.lotId===id); return r?r.name:id; }).join(', ')+'</div>';
+    }
+    const party = SIM.parties.find(p=>p.houseKey===h.frat.key && (p.state==='SETUP'||p.state==='DOORS'||p.state==='PEAK'||p.state==='WINDDOWN'));
+    if (party) html += '<div class="insparty">&#9835; '+party.theme+' at '+party.venueName+' — '+party.state.toLowerCase()+', crowd ~'+Math.round(party.crowd)+'</div>';
+    const pres = h.notables && h.notables.pres, soc = h.notables && h.notables.social;
+    if (pres) html += '<div class="insline">president: '+pres.full+' '+classTag(pres)+'</div>';
+    if (soc && soc!==pres) html += '<div class="insline">social chair: '+soc.full+' '+classTag(soc)+'</div>';
+    html += '<button class="insbtn" id="btnComposite">view composite</button>';
+    html += '<div class="insroster">';
+    for (let cy=4; cy>=1; cy--){
+      const cls = h.roster.map(pid=>PEOPLE[pid]).filter(p=>p.classYear===cy && p.standing==='GOOD');
+      if (!cls.length) continue;
+      html += '<div class="insclassyr">'+({4:'seniors',3:'juniors',2:'sophomores',1:(cls[0].kind==='PLEDGE'?'pledges':'freshmen')})[cy]+'</div>';
+      html += '<div class="insnames">'+cls.map(p=>p.nick?p.first+' “'+p.nick+'” '+p.last:p.first+' '+p.last).join(' · ')+'</div>';
+    }
+    html += '</div>';
+  }
+  PICK.el.innerHTML = html;
+  PICK.el.style.display = 'block';
+  PICK.el.querySelector('.insclose').onclick = ()=>{ PICK.el.style.display='none'; };
+  const cbtn = PICK.el.querySelector('#btnComposite');
+  if (cbtn) cbtn.onclick = ()=> showComposite(h);
+}
+function inspectRental(r){
+  const flavor = {
+    CAVE:'Dark. Grimy. Load-bearing tapestries. The ragers here are legendary.',
+    PINK:'Painted pink a long time ago for reasons nobody remembers. Sorority mixers gravitate here.',
+    COMPOUND:'Two units, one lease, zero supervision. Can host a multitude.',
+    CHILL:'Off the beaten path. Good porch, better sunsets, minimal law enforcement.',
+    MANSION:'The nicest off-campus spot in Lexford. Impresses parents and recruits alike.',
+    POLE:'On stilts over the river since the seventies. Decks have held more people than they should.',
+    HILL:'Up the ridge, past where the pavement quits. What happens on the hill stays on the hill.',
+  }[r.arch] || '';
+  const h = r.leasedBy ? houseByKey(r.leasedBy) : null;
+  let html = '<div class="inshead" style="border-color:#8a6f52"><b>'+r.name+'</b><button class="insclose">×</button></div>';
+  html += '<div class="insline" style="font-style:italic">'+flavor+'</div>';
+  html += '<div class="insline">landlord: '+r.landlord+' · rent $'+r.rent+'/wk</div>';
+  html += '<div class="insline">leased by: '+(h ? h.frat.name : 'nobody at present')+'</div>';
+  html += barRow('landlord patience', r.patience, 100, r.patience<30?'#b03a2e':'#6fae7c');
+  PICK.el.innerHTML = html;
+  PICK.el.style.display = 'block';
+  PICK.el.querySelector('.insclose').onclick = ()=>{ PICK.el.style.display='none'; };
+}
+function inspectSorority(s){
+  const col = '#'+s.sor.color.toString(16).padStart(6,'0');
+  let html = '<div class="inshead" style="border-color:'+col+'"><b>'+s.sor.letters+'</b> '+s.sor.name+'<button class="insclose">×</button></div>';
+  html += '<div class="insline">'+s.roster.length+' sisters in residence</div>';
+  const sample = s.roster.slice(0,8).map(pid=>PEOPLE[pid]).filter(p=>p.standing==='GOOD');
+  html += '<div class="insnames">'+sample.map(p=>p.first+' '+p.last).join(' · ')+' …</div>';
+  PICK.el.innerHTML = html;
+  PICK.el.style.display = 'block';
+  PICK.el.querySelector('.insclose').onclick = ()=>{ PICK.el.style.display='none'; };
+}
+
+// ==== §17d THE COMPOSITE ====================================================
+function drawFace(ctx, cx, cy, rx, ry, p){
+  const g = (n)=> hash01(p.pid*17.13 + n*7.7);
+  const skins = ['#e8c49a','#dfb98f','#d9a97c','#c98f62','#8a5a3a','#f0d0aa'];
+  const hairs = ['#2a2018','#4a3520','#6a4a28','#8a6a3a','#b89b62','#1a1a1a','#5a3a2a'];
+  const skin = skins[Math.floor(g(1)*skins.length)];
+  const hair = hairs[Math.floor(g(2)*hairs.length)];
+  // oval vignette
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2); ctx.clip();
+  ctx.fillStyle = '#d8d2c2'; ctx.fillRect(cx-rx, cy-ry, rx*2, ry*2);
+  // shoulders + blazer
+  ctx.fillStyle = g(3)<0.75 ? '#22293a' : '#4a3a30';
+  ctx.beginPath(); ctx.ellipse(cx, cy+ry*0.95, rx*0.85, ry*0.5, 0, Math.PI, 0); ctx.fill();
+  // shirt + tie
+  ctx.fillStyle = '#f0ece0'; ctx.fillRect(cx-rx*0.13, cy+ry*0.44, rx*0.26, ry*0.5);
+  ctx.fillStyle = ['#7a2c22','#27406b','#1f5c38','#c9a227'][Math.floor(g(4)*4)];
+  ctx.fillRect(cx-rx*0.05, cy+ry*0.46, rx*0.1, ry*0.44);
+  // head
+  const hw = rx*0.52, hh = ry*0.46, hy = cy-ry*0.18;
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.ellipse(cx, hy, hw, hh, 0, 0, Math.PI*2); ctx.fill();
+  // hair styles: 0 side part, 1 buzz, 2 mop, 3 swoop, 4 curly
+  const style = Math.floor(g(5)*5);
+  ctx.fillStyle = hair;
+  if (style===0){ ctx.beginPath(); ctx.ellipse(cx, hy-hh*0.62, hw*1.0, hh*0.42, 0, Math.PI, 0); ctx.fill();
+    ctx.fillRect(cx-hw, hy-hh*0.72, hw*0.7, hh*0.34); }
+  else if (style===1){ ctx.beginPath(); ctx.ellipse(cx, hy-hh*0.55, hw*0.95, hh*0.36, 0, Math.PI, 0); ctx.fill(); }
+  else if (style===2){ ctx.beginPath(); ctx.ellipse(cx, hy-hh*0.5, hw*1.06, hh*0.6, 0, Math.PI, 0); ctx.fill();
+    ctx.fillRect(cx-hw*1.02, hy-hh*0.5, hw*0.24, hh*0.6); ctx.fillRect(cx+hw*0.78, hy-hh*0.5, hw*0.24, hh*0.6); }
+  else if (style===3){ ctx.beginPath(); ctx.ellipse(cx-hw*0.1, hy-hh*0.6, hw*1.02, hh*0.46, -0.15, Math.PI*0.95, -0.05); ctx.fill(); }
+  else { for (let i=0;i<7;i++){ ctx.beginPath(); ctx.arc(cx-hw*0.8+i*hw*0.27, hy-hh*0.72, hw*0.2, 0, Math.PI*2); ctx.fill(); } }
+  // eyes, brows, mouth
+  ctx.fillStyle = '#2a2320';
+  ctx.beginPath(); ctx.arc(cx-hw*0.36, hy-hh*0.05, rx*0.035, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx+hw*0.36, hy-hh*0.05, rx*0.035, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = hair; ctx.lineWidth = rx*0.045;
+  ctx.beginPath(); ctx.moveTo(cx-hw*0.52, hy-hh*0.28); ctx.lineTo(cx-hw*0.18, hy-hh*0.32); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx+hw*0.18, hy-hh*0.32); ctx.lineTo(cx+hw*0.52, hy-hh*0.28); ctx.stroke();
+  ctx.strokeStyle = '#8a5a42'; ctx.lineWidth = rx*0.04;
+  const smile = g(6);
+  ctx.beginPath();
+  if (smile<0.6){ ctx.arc(cx, hy+hh*0.4, hw*0.34, 0.25, Math.PI-0.25); }         // grin
+  else if (smile<0.85){ ctx.moveTo(cx-hw*0.25, hy+hh*0.48); ctx.lineTo(cx+hw*0.25, hy+hh*0.48); } // stoic
+  else { ctx.moveTo(cx-hw*0.22, hy+hh*0.5); ctx.quadraticCurveTo(cx+hw*0.1, hy+hh*0.58, cx+hw*0.28, hy+hh*0.44); }  // smirk
+  ctx.stroke();
+  ctx.restore();
+  // frame
+  ctx.strokeStyle = '#8a7a5a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2); ctx.stroke();
+}
+function showComposite(h){
+  let ov = document.getElementById('compositeov');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'compositeov'; ov.className = 'ui';
+  const bros = h.roster.map(pid=>PEOPLE[pid]).filter(p=>p.standing==='GOOD').sort((a,b)=>b.classYear-a.classYear || a.last.localeCompare(b.last));
+  const cols = Math.min(8, Math.max(4, Math.ceil(Math.sqrt(bros.length*1.4))));
+  const rows = Math.ceil(bros.length/cols);
+  const cw = 106, ch = 148, pad = 46, top = 120;
+  const W = cols*cw + pad*2, Hh = rows*ch + top + 60;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = Hh;
+  const ctx = cv.getContext('2d');
+  // walnut frame + cream mat
+  ctx.fillStyle = '#4a3220'; ctx.fillRect(0,0,W,Hh);
+  ctx.fillStyle = '#efe7d2'; ctx.fillRect(14,14,W-28,Hh-28);
+  ctx.fillStyle = '#2b2320';
+  ctx.font = 'bold 30px Georgia'; ctx.textAlign='center';
+  ctx.fillText(h.frat.letters + '  ·  ' + h.frat.name, W/2, 62);
+  ctx.font = 'italic 17px Georgia';
+  const d = CLOCK.derive();
+  ctx.fillText('Colonnade College — ' + chronYearLabel(d.year), W/2, 92);
+  bros.forEach((p, i)=>{
+    const col = i % cols, row = Math.floor(i / cols);
+    const cx = pad + col*cw + cw/2, cy = top + row*ch + 52;
+    drawFace(ctx, cx, cy, 36, 46, p);
+    ctx.fillStyle = '#2b2320'; ctx.font = '11px Georgia'; ctx.textAlign = 'center';
+    const nm = p.nick ? p.first+' “'+p.nick+'” '+p.last : p.first+' '+p.last;
+    ctx.fillText(nm.length>22 ? nm.slice(0,21)+'…' : nm, cx, cy+66);
+    ctx.font = 'italic 10px Georgia';
+    ctx.fillText(({4:'Senior',3:'Junior',2:'Sophomore',1:(p.kind==='PLEDGE'?'Pledge':'Freshman')})[p.classYear]||'', cx, cy+79);
+  });
+  ov.appendChild(cv);
+  const hint = document.createElement('div');
+  hint.id = 'comphint'; hint.textContent = 'click anywhere to close';
+  ov.appendChild(hint);
+  ov.onclick = ()=> ov.remove();
+  document.body.appendChild(ov);
+}
+
+// ==== §17e ACTS =============================================================
+const ACTS = {
+  pending: null, cd: {},
+  defs: [
+    { key:'strike',   label:'Issue a strike',            target:'house',  cdDays: 30 },
+    { key:'forgive',  label:'Forgive a strike',          target:'house',  cdDays: 30 },
+    { key:'dean',     label:'Dean walk-through tonight', target:null,     cdDays: 21 },
+    { key:'money',    label:'Wire alumni money',         target:'house',  cdDays: 60 },
+    { key:'pavilion', label:'Book a big act at the pavilion', target:null, cdDays: 200 },
+    { key:'pull',     label:'Pull a landlord’s lease',   target:'rental', cdDays: 120 },
+    { key:'recharter',label:'Re-charter a dark house',   target:'house',  cdDays: 90 },
+  ],
+};
+function actsInit(){
+  const bar = document.createElement('div');
+  bar.id = 'actsbar'; bar.className = 'ui closed';
+  let html = '<div id="actshead">Meddle &#9662;</div><div id="actslist">';
+  for (const a of ACTS.defs){
+    html += '<button data-act="'+a.key+'">'+a.label+(a.target?' &#8982;':'')+'</button>';
+  }
+  html += '</div><div id="actshint"></div>';
+  bar.innerHTML = html;
+  document.body.appendChild(bar);
+  bar.querySelector('#actshead').onclick = ()=> bar.classList.toggle('closed');
+  bar.querySelectorAll('button[data-act]').forEach(b=>{
+    b.onclick = ()=> actClicked(b.dataset.act);
+  });
+  ACTS.bar = bar;
+}
+function actHint(msg){ const el = document.getElementById('actshint'); if (el) el.textContent = msg||''; }
+function actClicked(key){
+  const def = ACTS.defs.find(a=>a.key===key);
+  const d = CLOCK.derive();
+  if (ACTS.cd[key] && d.dayAbs < ACTS.cd[key]){ actHint('too soon — the campus needs '+(ACTS.cd[key]-d.dayAbs)+' more days to recover'); return; }
+  if (def.target){ ACTS.pending = key; actHint('now click a '+def.target+' on the map (Esc to cancel)'); return; }
+  applyAct(key, null);
+}
+function applyAct(key, target){
+  const d = CLOCK.derive();
+  const def = ACTS.defs.find(a=>a.key===key);
+  let ok = true;
+  switch(key){
+    case 'strike': {
+      const h = target;
+      if (!h || h.dark){ ok=false; actHint('that house is beyond striking'); break; }
+      issueStrike(h, 'a matter the Dean’s office declined to specify');
+      break;
+    }
+    case 'forgive': {
+      const h = target;
+      if (!h){ ok=false; break; }
+      const act = h.strikes.filter(s=>s.expiresDay>d.dayAbs);
+      if (!act.length){ ok=false; actHint(h.frat.name+' has no strikes to forgive'); break; }
+      act[act.length-1].expiresDay = d.dayAbs;
+      h.dryUntilDay = d.dayAbs;
+      evPush('FORGIVE', 3, [h.lot.x,h.lot.z],
+        'Word from the Dean’s office: '+h.frat.name+'’s latest strike has been quietly expunged. Nobody asks why.',
+        { house:h.frat.key, lore:'Somebody made a phone call — the kind with a golf handicap behind it — and '+h.frat.name+'’s strike disappeared from the ledger. The Dean signed the paper and looked out the window for a while.' });
+      break;
+    }
+    case 'dean': {
+      evPush('DEANWALK', 4, [40,-40],
+        'Dean Whitfield is walking the Row tonight, hands clasped behind his back, reading porches like tea leaves.',
+        { lore:'The night the Dean walked the Row unannounced entered the folklore instantly. Music died house by house ahead of him like streetlights going out.' });
+      for (const p of SIM.parties){
+        if ((p.state==='DOORS'||p.state==='PEAK') && !p.offCampus){
+          const h = houseByKey(p.houseKey);
+          p.crowd *= 0.6; p.copsCame = true;
+          if (h){ h.stats.scrutiny += 8; strikeRoll(h, 'what the Dean saw with his own eyes', 0.2); }
+        }
+      }
+      break;
+    }
+    case 'money': {
+      const h = target;
+      if (!h || h.dark){ ok=false; break; }
+      h.stats.funding += 1500;
+      evPush('MONEY', 3, [h.lot.x,h.lot.z],
+        'A wire transfer has landed in '+h.frat.name+'’s account from an alumnus in Charlotte who "had a good quarter."',
+        { house:h.frat.key, lore:'An alumnus who did well in banking wired '+h.frat.name+' a sum with instructions that it be spent "on morale." It was spent on morale.' });
+      break;
+    }
+    case 'pavilion': {
+      const live = WORLD.houses.filter(h=>!h.dark);
+      if (!live.length){ ok=false; break; }
+      const h = live.reduce((a,b)=> a.stats.funding>b.stats.funding?a:b);
+      const dow = d.dow;
+      const daysToSat = (5 - dow + 7) % 7 || 7;
+      const day = d.dayAbs + daysToSat;
+      const porch = WORLD.builtDoors['PAV'] || [-688, 474];
+      SIM.parties.push({
+        id:'pav'+day, houseKey:h.frat.key, lotId:'PAV', porch, door:porch,
+        offCampus:true, venueName:'the pavilion out Route 9',
+        theme:'a big act somebody’s dad paid for', t0: day*1440 + 20*60,
+        state:'SCHEDULED', peak: 220, crowd:0, maxCrowd:0, kegs:6,
+        incidents:[], legendary:true, resolved:false, copsCame:false,
+      });
+      h.stats.funding -= 800;
+      evPush('PAVILION', 4, porch,
+        'Flyers are up: a name act is playing the pavilion Saturday. '+h.frat.name+' is footing the bill and everyone is suddenly their friend.',
+        { house:h.frat.key, lore:'The pavilion show: a real touring act, out Route 9, bankrolled by '+h.frat.name+' money nobody asked questions about. People still argue about the setlist. Everyone agrees about the encore.' });
+      break;
+    }
+    case 'pull': {
+      const r = target;
+      if (!r || !r.leasedBy){ ok=false; actHint('that house has no lease to pull'); break; }
+      const h = houseByKey(r.leasedBy);
+      if (h) h.leases = h.leases.filter(l=>l!==r.lotId);
+      evPush('LEASE', 4, [r.lot.x, r.lot.z],
+        r.landlord+' has decided, effective immediately, that the '+r.name+' era is over.',
+        { house: h?h.frat.key:null, lore:'That was the year '+r.landlord+' pulled the lease on '+r.name+'. Decades of parties ended by certified mail. The seniors drove out one last time and sat on the deck until dark.' });
+      r.leasedBy = null; r.patience = 45;
+      break;
+    }
+    case 'recharter': {
+      const h = target;
+      if (!h || !h.dark){ ok=false; actHint('pick a dark house'); break; }
+      recharter(h);
+      break;
+    }
+  }
+  if (ok){
+    ACTS.cd[key] = d.dayAbs + def.cdDays;
+    actHint('');
+  }
+  ACTS.pending = null;
+}
+
+// ==== §17f CLICK ROUTING & WATCH MODE ======================================
+function clickWorld(clientX, clientY){
+  const t = pickAt(clientX, clientY);
+  if (ACTS.pending){
+    const def = ACTS.defs.find(a=>a.key===ACTS.pending);
+    if (t && t.kind===def.target){
+      applyAct(ACTS.pending, t.ref);
+    } else if (def.target==='house' && t && t.kind==='house'){
+      applyAct(ACTS.pending, t.ref);
+    } else {
+      actHint('that’s not a '+def.target+' — try again, or Esc to cancel');
+      return;
+    }
+    return;
+  }
+  if (!t){ if (PICK.el) PICK.el.style.display='none'; return; }
+  if (t.kind==='house') inspectHouse(t.ref);
+  else if (t.kind==='rental') inspectRental(t.ref);
+  else if (t.kind==='sorority') inspectSorority(t.ref);
+}
+function watchToggle(){
+  document.body.classList.toggle('watch');
+}
 
 /*==APPEND==*/
 </script>
