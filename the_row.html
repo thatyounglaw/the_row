@@ -53,6 +53,12 @@
   #speedbar button:hover { color:#fff; }
   #speedbar button.active { background:#2a3a5c; border-color:rgba(244,239,226,.25); color:#ffe9a8; }
   #periodlabel { font-size:11px; margin-top:3px; color:#ffd98a; opacity:.85; font-style:italic; }
+  #beatticker {
+    position:absolute; bottom:58px; left:16px; z-index:20; max-width:470px;
+    background:rgba(16,22,38,.78); border-left:3px solid #c9a227; padding:8px 12px;
+    color:#f0e9d8; font-family:Georgia,serif; font-size:13px; font-style:italic;
+    opacity:0; transition:opacity .6s; border-radius:2px;
+  }
   #hint {
     position:absolute; bottom:14px; right:16px; z-index:20; text-align:right;
     color:rgba(244,239,226,.66); font-size:11px; font-family:Tahoma,Verdana,sans-serif;
@@ -1325,9 +1331,11 @@ function updateWindowLights(hour){
   R.lastLitBucket = bucket;
   const day = hour>=6.5 && hour<17.5;
   const ovr = (typeof DYN !== 'undefined') ? DYN.windowOverride : null;
+  const darkKeys = WORLD.darkKeys;
   for (let i=0;i<WINDOWS.items.length;i++){
     const w = WINDOWS.items[i];
-    if (ovr && ovr.has(w.key)) WINDOWS.mesh.setColorAt(i, w.lr < 0.8 ? WIN_LIT : WIN_LIT2);
+    if (darkKeys && darkKeys.has(w.key)) WINDOWS.mesh.setColorAt(i, WIN_DARK);
+    else if (ovr && ovr.has(w.key)) WINDOWS.mesh.setColorAt(i, w.lr < 0.8 ? WIN_LIT : WIN_LIT2);
     else if (day) WINDOWS.mesh.setColorAt(i, WIN_DAY);
     else if (w.lr < f) WINDOWS.mesh.setColorAt(i, w.lr < f*0.5 ? WIN_LIT : WIN_LIT2);
     else WINDOWS.mesh.setColorAt(i, WIN_DARK);
@@ -1526,6 +1534,7 @@ function boot(){
     ['raising the Colonnade…', ()=>{
       assignOccupants();
       R.scene.add(buildStatics());
+      initHouseLedgers();
       const wm = buildWindows();
       for (const w of WINDOWS.items) w.lr = RNG.ambient();
       R.scene.add(wm);
@@ -1533,7 +1542,7 @@ function boot(){
     ['paving Row Street…', ()=>{ R.scene.add(buildRoads()); }],
     ['planting the oaks…', ()=>{ for (const m of buildTrees()) R.scene.add(m); R.scene.add(buildCars()); }],
     ['hanging the porch lights…', ()=>{
-      navBuild(); simCollectPOIs(); dynInit(); hud2Init();
+      navBuild(); simCollectPOIs(); dynInit(); hud2Init(); beatTickerInit();
       const d0 = CLOCK.derive();
       SIM.period = calPeriod(d0.dayAbs % DAYS_PER_YEAR);
       primeWeekend();
@@ -1595,6 +1604,7 @@ function animate(ts){
   updateAtmosphere();
   updateHUD();
   hud2Tick();
+  beatTickerUpdate(dt);
   dynUpdate(dt, ts/1000);
   R.renderer.render(R.scene, R.camera);
 }
@@ -1736,32 +1746,40 @@ function simCollectPOIs(){
   SIM.pois = p;
 }
 
-// party archetype appetites: [friProb, satProb, peakCrowd]
-const PARTY_STYLE = {
-  RD:[0.85, 0.9, 85], ZI:[0.6, 0.7, 60], TK:[0.5, 0.65, 55], KR:[0.5, 0.6, 50],
-  PO:[0.45, 0.6, 60], SS:[0.3, 0.5, 45], NT:[0.35, 0.45, 40], OP:[0.25, 0.4, 35],
-};
 const PARTY_THEMES_LITE = ['bar night','band party','theme party','DJ night','date function pregame','porch party'];
 
 function planWeekend(baseDay){
   const per = calPeriod(baseDay % DAYS_PER_YEAR);
   if (per.party <= 0.01) return;
-  const weekStartDay = baseDay;
   for (const h of WORLD.houses){
-    const style = PARTY_STYLE[h.frat.key];
-    for (const [offset, prob] of [[1, style[0]], [2, style[1]]]){ // Thu+1=Fri, Thu+2=Sat
-      if (rh() < prob * per.party){
-        const day = weekStartDay + offset;
-        const t0 = day*1440 + 21*60 + rhi(-3,4)*15;
-        SIM.parties.push({
-          id: 'p'+day+'_'+h.frat.key, houseKey: h.frat.key, lotId: h.lotId,
-          porch: h.porch, door: WORLD.builtDoors[h.lotId],
-          theme: PARTY_THEMES_LITE[rhi(0,PARTY_THEMES_LITE.length-1)],
-          t0, state:'SCHEDULED',
-          peak: Math.round(style[2] * clamp(per.party,0.5,1.6) * rhr(0.75,1.2)),
-          crowd: 0, kegs: rhi(2,4),
-        });
+    if (h.dark || !h.stats) continue;
+    for (const offset of [1,2]){
+      const day = baseDay + offset;
+      const prob = clamp(h.ai.partyHunger * per.party * (offset===2?1.05:0.9) * (h.stats.funding<80?0.3:1), 0, 0.95);
+      if (rh() >= prob) continue;
+      const dry = isDry(h, day);
+      let offCampus = false, venueName = 'the '+h.frat.name+' house';
+      let venueLot = h.lotId, porch = h.porch;
+      const leased = h.leases.map(id=>WORLD.rentals.find(r=>r.lotId===id)).filter(Boolean);
+      if (dry){
+        if (!leased.length || rh()<0.15) continue;   // dry and nowhere to go — a quiet weekend
+        const r = leased[rhi(0,leased.length-1)];
+        offCampus = true; venueName = r.name; venueLot = r.lotId;
+        porch = WORLD.builtDoors[r.lotId] || [r.lot.x, r.lot.z];
+      } else if (leased.length && rh() < 0.3){
+        const r = leased[rhi(0,leased.length-1)];
+        offCampus = true; venueName = r.name; venueLot = r.lotId;
+        porch = WORLD.builtDoors[r.lotId] || [r.lot.x, r.lot.z];
       }
+      const t0 = day*1440 + 21*60 + rhi(-3,4)*15;
+      const peak = Math.round((26 + h.stats.social*0.55 + h.stats.prestige*0.35) * clamp(per.party,0.6,1.5) * rhr(0.75,1.15));
+      SIM.parties.push({
+        id: 'p'+day+'_'+h.frat.key, houseKey: h.frat.key, lotId: venueLot,
+        porch, door: porch, offCampus, venueName,
+        theme: PARTY_THEMES_LITE[rhi(0,PARTY_THEMES_LITE.length-1)],
+        t0, state:'SCHEDULED', peak, crowd: 0, maxCrowd: 0, kegs: rhi(2,4),
+        incidents: [], legendary: false, resolved: false, copsCame: false,
+      });
     }
   }
 }
@@ -1790,17 +1808,23 @@ function partyTick(){
   const m = nowMin();
   for (const p of SIM.parties){
     const st = partyState(p, m);
-    if (st !== p.state) p.state = st;
+    if (st !== p.state){
+      if (st==='AFTERMATH' && !p.resolved){ p.resolved = true; resolveParty(p); }
+      p.state = st;
+    }
     if (st==='DOORS' || st==='PEAK' || st==='WINDDOWN'){
-      const target = partyTargetCrowd(p, m);
+      const target = partyTargetCrowd(p, m) * (p.copsCame ? 0.55 : 1);
       const delta = target - p.crowd;
       p.crowd += delta * 0.12;
+      if (p.crowd > (p.maxCrowd||0)) p.maxCrowd = p.crowd;
+      if (st!=='WINDDOWN') partyIncidentTick(p, houseByKey(p.houseKey));
       if (SIM.effRate <= 200){
         if (delta > 4 && ra() < 0.35) spawnPartyGoer(p, true);
         if (delta < -4 && ra() < 0.3) spawnPartyGoer(p, false);
       }
-    } else if (st==='AFTERMATH' && p.crowd > 0){
-      p.crowd = 0;
+    } else if (st==='AFTERMATH'){
+      if (!p.resolved){ p.resolved = true; resolveParty(p); }
+      if (p.crowd > 0) p.crowd = 0;
     }
   }
   if (SIM.parties.length > 60){
@@ -1950,6 +1974,7 @@ function simTick(){
   const d = CLOCK.derive();
   SIM.period = calPeriod(d.dayAbs % DAYS_PER_YEAR);
   const ph = dayPhase(d.hour);
+  if (d.dayAbs !== SIM.lastDay && SIM.lastDay >= 0){ dailyTick(d); }
   if (d.dow===3 && d.hour>=18 && SIM.lastWeekPlan !== d.dayAbs){
     SIM.lastWeekPlan = d.dayAbs;
     planWeekend(d.dayAbs);
@@ -2271,6 +2296,551 @@ function hud2Refresh(){
 function hud2Tick(){
   if (HUD2.per && SIM.period) HUD2.per.textContent = SIM.period.label;
 }
+
+// ==== §3c NAME POOLS & THE CAST ============================================
+const M_FIRST = ['Hunter','Tucker','Tripp','Wells','Bradford','Hayes','Carter','Preston','Whit','Dabney','Mason','Randolph','Beau','Walker','Chase','Forrest','Colton','Sam','Ben','Will','Jack','Matt','Drew','Ty','Reid','Clay','Grant','Wade','Brooks','Fielding','Palmer','Sutton','Knox','Harrison','Ward','Ellis'];
+const F_FIRST = ['Lindsay','Brooke','Whitney','Meredith','Lauren','Kate','Mary Stuart','Anne Carter','Liza','Sarah Beth','Caroline','Amanda','Ashley','Jessica','Emily','Hannah','Blair','Paige','Peyton','Shelby','Macon','Frances','Ellie','Maisie','Virginia','Camille','Darcy','Reese','Sloane','Tinsley'];
+const SURNAMES = ['Callahan','Montgomery','Braxton','Harrington','Bowman','Tate','Langford','Whitmore','Beckett','Ashford','Colston','Pemberton','Ravenel','Boykin','Culpepper','Dandridge','Fairfax','Goode','Hairston','Lawton','Middleton','Pinckney','Rutledge','Tazewell','Venable','Byrd','Carrington','Eppes','Fontaine','Gaines','Harwood','Kincaid','Lockhart','Mercer','Nolting','Overton','Prichard','Quarles','Randall','Semmes'];
+const NICKNAMES = ['Moose','Bricker','Toothpick','Chairman','Skeeter','Bull','Duck','Sweet Tea','Cheese','Tank','Gator','Peanut','Boone','Catfish','Judge','Deacon','Smalls','Red','Hollywood','Biscuit','Pockets','Slim','Waffle','Doc','Scooter','Bones','Tex','Pancake','Radio','Coach'];
+const TRAITS = ['bold','craven','shrewd','oblivious','smooth','awkward','loyal','flaky','pious','feral','bookish','golden boy','liability','old soul','DJ','guitar guy','rugby','premed','legacy','undeclared'];
+const BACKGROUNDS = ['LEGACY','LEGACY','LEGACY','LEGACY','PREP','PREP','PREP','GRIT','GRIT','WILD']; // GDD §12H mix
+
+const PEOPLE = []; // pid-indexed
+function newPerson(kind, orgKey, classYear){
+  const male = kind==='BROTHER' || kind==='PLEDGE';
+  const first = male ? rnPick(M_FIRST) : rnPick(F_FIRST);
+  const last = rnPick(SURNAMES);
+  const hasNick = male && RNG.name() < 0.38;
+  const nick = hasNick ? rnPick(NICKNAMES) : null;
+  const t1 = rnPick(TRAITS); let t2 = rnPick(TRAITS);
+  if (t2===t1) t2 = rnPick(TRAITS);
+  const p = {
+    pid: PEOPLE.length, kind, orgKey, classYear,
+    first, last, nick,
+    name: nick || first,
+    full: nick ? (first+' "'+nick+'" '+last) : (first+' '+last),
+    bg: rnPick(BACKGROUNDS),
+    traits: [t1, t2],
+    charm: RNG.name(), social: RNG.name(), wealth: RNG.name(),
+    partner: -1, alive: true, standing: 'GOOD',
+    mentions: 0,
+  };
+  PEOPLE.push(p);
+  return p;
+}
+function classTag(p){ // "'04" style, from sim year + classYear
+  const d = CLOCK.derive();
+  const grad = WORLD.classYear + d.year + (4 - p.classYear);
+  return "'0" + ((grad % 10));
+}
+function personRef(p){ return p.full + ' ' + classTag(p); }
+
+// ==== §10 HOUSE LEDGER ======================================================
+// stats live on WORLD.houses[i].stats; strikes on .strikes
+const ARCH_INIT = { // archetype: [prestige, brotherhood, gpa, funding, social, riskTol, partyHunger]
+  SS:[68, 55, 3.0, 900, 55, 0.25, 0.45], RD:[55, 70, 2.5, 380, 60, 0.9, 0.95],
+  TK:[52, 68, 2.6, 520, 50, 0.6, 0.65], PO:[58, 45, 2.8, 640, 65, 0.5, 0.6],
+  NT:[50, 50, 2.9, 560, 55, 0.35, 0.5], OP:[42, 60, 3.4, 420, 35, 0.2, 0.35],
+  ZI:[45, 62, 2.7, 400, 45, 0.8, 0.7], KR:[44, 75, 2.55, 440, 40, 0.7, 0.6],
+};
+function initHouseLedgers(){
+  for (const h of WORLD.houses){
+    const a = ARCH_INIT[h.frat.key];
+    h.stats = { prestige:a[0], brotherhood:a[1], gpa:a[2], funding:a[3], social:a[4], scrutiny: 12 };
+    h.ai = { riskTol:a[5], partyHunger:a[6] };
+    h.strikes = [];        // {day, reason, expiresDay}
+    h.dryUntilDay = 0;
+    h.dark = false; h.darkSinceDay = 0; h.everDark = false;
+    h.roster = [];
+    h.memory = { partiesThisTerm: 0, legendary: 0, lastResultDay: 0 };
+    h.leases = [];
+    // founding roster: ~7 per class year
+    for (let cy=1; cy<=4; cy++){
+      const n = rwi(6,9);
+      for (let i=0;i<n;i++) h.roster.push(newPerson('BROTHER', h.frat.key, cy).pid);
+    }
+    assignNotables(h);
+  }
+  for (const s of WORLD.sororities){
+    s.roster = [];
+    for (let cy=1; cy<=4; cy++){
+      const n = rwi(7,10);
+      for (let i=0;i<n;i++) s.roster.push(newPerson('SOROR', s.sor.key, cy).pid);
+    }
+  }
+  // starting leases: the party-forward houses hold the party real estate
+  const wanting = WORLD.houses.slice().sort((a,b)=> ARCH_INIT[b.frat.key][6]-ARCH_INIT[a.frat.key][6]);
+  const pool = WORLD.rentals.slice();
+  for (let i=0;i<3 && pool.length;i++){
+    const h = wanting[i];
+    const idx = Math.floor(rw()*pool.length);
+    const r = pool.splice(idx,1)[0];
+    r.leasedBy = h.frat.key;
+    h.leases.push(r.lotId);
+  }
+}
+function assignNotables(h){
+  const bros = h.roster.map(pid=>PEOPLE[pid]).filter(p=>p.alive && p.standing==='GOOD');
+  const seniors = bros.filter(p=>p.classYear>=4);
+  const pick = (arr, key)=> arr.length ? arr.reduce((a,b)=> (b[key]>a[key]?b:a)) : null;
+  h.notables = {
+    pres: pick(seniors.length?seniors:bros, 'social'),
+    social: pick(bros.filter(p=>p!==h.notables?.pres), 'charm') || pick(bros,'charm'),
+    liability: bros.find(p=>p.traits.includes('liability')) || pick(bros,'wealth'),
+  };
+}
+function houseByKey(k){ return WORLD.houses.find(h=>h.frat.key===k); }
+function prestigeRank(h){
+  const sorted = WORLD.houses.filter(x=>!x.dark).slice().sort((a,b)=>b.stats.prestige-a.stats.prestige);
+  return sorted.indexOf(h);
+}
+function activeStrikes(h, dayAbs){ return h.strikes.filter(s=>s.expiresDay > dayAbs).length; }
+function isDry(h, dayAbs){ return h.dryUntilDay > dayAbs; }
+
+// ==== §14a EVENT BUS & CHRONICLE (core) =====================================
+const EV = { queue: [], chronicle: [], beatEl: null, beatTimer: 0 };
+function evPush(type, pri, site, beat, opts){
+  opts = opts || {};
+  const e = { t: CLOCK.t, type, pri, site, beat, house: opts.house||null, lore: opts.lore||null, actors: opts.actors||[] };
+  EV.queue.push(e);
+  if (EV.queue.length > 400) EV.queue.splice(0, 100);
+  if (opts.lore){
+    const d = CLOCK.derive();
+    EV.chronicle.push({
+      t: CLOCK.t, year: d.year, type,
+      date: DOW[d.dow]+', '+MONTHS[d.month]+' '+d.dayInMonth,
+      text: opts.lore, site,
+    });
+  }
+  // beat ticker (phase 3 minimal; the director takes over in phase 4)
+  if (pri >= 2 && EV.beatEl){
+    EV.beatEl.textContent = beat;
+    EV.beatEl.style.opacity = 1;
+    EV.beatTimer = 9;
+  }
+  return e;
+}
+function beatTickerInit(){
+  const el = document.createElement('div');
+  el.id = 'beatticker'; el.className='ui';
+  document.body.appendChild(el);
+  EV.beatEl = el;
+}
+function beatTickerUpdate(dt){
+  if (!EV.beatEl) return;
+  if (EV.beatTimer > 0){
+    EV.beatTimer -= dt;
+    if (EV.beatTimer <= 0) EV.beatEl.style.opacity = 0;
+  }
+}
+
+// ==== §13a TEXT v1 — beats & lore (expanded to full banks in phase 4) =======
+function fmtClock(){ const d=CLOCK.derive(); const h12=((d.hh+11)%12)+1; const mm=d.mm<10?'0'+d.mm:d.mm; return h12+':'+mm+' '+(d.hh>=12?'PM':'AM'); }
+function pickT(arr, n){ return arr[n % arr.length]; }
+let _txtCounter = 0;
+function beatNoise(h, venue){
+  const t = [
+    'It is '+fmtClock()+'. The neighbors have developed opinions about the bass.',
+    'It is '+fmtClock()+'. Someone has called about the noise. The noise, for its part, continues.',
+    'Campus security has been asked to look into "a sustained roar" coming from '+venue+'.',
+    'The music at '+venue+' has reached the volume where the windows contribute percussion.',
+  ];
+  return pickT(t, _txtCounter++);
+}
+function beatCops(h, venue){
+  const t = [
+    'A patrol car eases to the curb outside '+venue+'. Inside, someone kills the music mid-chorus.',
+    'Blue light washes the porch of '+venue+'. The crowd achieves instant, unconvincing innocence.',
+    'The law has arrived at '+venue+'. Eighty people are suddenly just standing around, enjoying the night air.',
+  ];
+  return pickT(t, _txtCounter++);
+}
+function beatLegendary(h, venue){
+  const t = [
+    'Something is happening at '+venue+'. Years from now, everyone will claim they were here.',
+    'The porch of '+venue+' has begun chanting. History is being written, loosely.',
+    venue+' has crossed the threshold from party to event. There is no going back.',
+  ];
+  return pickT(t, _txtCounter++);
+}
+function beatFight(){
+  const t = [
+    'A disagreement about the aux cable has become a disagreement about everything.',
+    'Two gentlemen are being separated by six gentlemen. The music has not stopped.',
+    'There is a scuffle. Witnesses will describe it as "basically nothing" and "insane," depending.',
+  ];
+  return pickT(t, _txtCounter++);
+}
+function beatAlarm(venue){
+  const t = [
+    'The fog machine at '+venue+' has exceeded the manufacturer’s recommendations. The fire alarm weighs in.',
+    'The fire alarm at '+venue+' is going off. Nobody is leaving. The DJ plays on.',
+  ];
+  return pickT(t, _txtCounter++);
+}
+function beatStreak(){
+  const t = [
+    'Several figures are crossing the lawn wearing only their sneakers and total confidence.',
+    'A streaker has appeared. The crowd rates the form: high marks, questionable dismount.',
+  ];
+  return pickT(t, _txtCounter++);
+}
+function loreParty(h, p, quality, legendary){
+  const venue = p.venueName;
+  const who = h.notables && h.notables.social ? h.notables.social.name : 'the social chair';
+  if (legendary){
+    const t = [
+      'This one still comes up at Homecoming: the night at '+venue+' when the '+p.theme+' got completely out of hand, in the best possible way. '+who+' swears the crowd count grows every time it’s told.',
+      'Nobody agrees on the details of that '+p.theme+' at '+venue+' — only that it happened, that it was legendary, and that '+who+' has never fully recovered his reputation for good judgment.',
+      'The '+p.theme+' at '+venue+' entered the canon immediately. Freshmen who weren’t there will someday claim they were.',
+    ];
+    return pickT(t, _txtCounter++);
+  }
+  const t = [
+    'A '+p.theme+' at '+venue+' that everyone agreed was a good time, which is its own kind of achievement.',
+    'The '+p.theme+' at '+venue+' went about how those go — loud, warm, over too fast.',
+  ];
+  return pickT(t, _txtCounter++);
+}
+function loreStrike(h, reason, count){
+  const t = [
+    h.frat.name+' picked up a strike from the Dean’s office over '+reason+' — strike '+count+', as the whole campus counted along. The house went dry, and the parties moved down to the river.',
+    'The Dean’s office handed '+h.frat.name+' strike '+count+' for '+reason+'. Everyone agreed it could have been anyone. It was, as usual, whoever got caught.',
+    'Strike '+count+' for '+h.frat.name+', for '+reason+'. The brothers took the news with dignity, then drove to the pole house.',
+  ];
+  return pickT(t, _txtCounter++);
+}
+function loreCharter(h){
+  return 'In the end it took three strikes, and '+h.frat.name+' lost its charter. The letters came off the facade on a gray morning with nobody much around. The house stood dark after that — guys crossed the street rather than walk past it.';
+}
+function loreRecharter(h){
+  return h.frat.name+' came back. A colony class of transfers and true believers reopened the old house, aired it out, and painted the letters back on. The porch light worked on the first try, which everyone took as a sign.';
+}
+function lorePledgeClass(h, n){
+  const t = [
+    h.frat.name+' took '+n+' on bid day. Watching them sprint up the lawn, you could already tell which ones would be trouble, and which ones would be the heart of the thing.',
+    'Bid day: '+n+' freshmen ran to '+h.frat.name+'. Their mothers would have wanted photographs. Their mothers did not get photographs.',
+  ];
+  return pickT(t, _txtCounter++);
+}
+function loreInitiation(h, n){
+  return h.frat.name+' initiated '+n+' new brothers by candlelight at the house. Whatever was said in that room stayed in that room, which is the point.';
+}
+function loreGraduation(h, names){
+  return 'Graduation on the Colonnade lawn: '+h.frat.name+' sent off '+names+'. There were speeches, and then there was one long afternoon on the porch that nobody wanted to end.';
+}
+
+// ==== §11b INCIDENTS, STRIKES & OUTCOMES ====================================
+function tallPoppy(h){ const r = prestigeRank(h); return r===0 ? 1.35 : r===1 ? 1.15 : 1.0; }
+function strikeRoll(h, reason, baseP){
+  const d = CLOCK.derive();
+  const P = baseP * (0.7 + h.stats.scrutiny/120) * tallPoppy(h);
+  if (rh() < P) issueStrike(h, reason);
+}
+function issueStrike(h, reason){
+  const d = CLOCK.derive();
+  h.strikes.push({ day: d.dayAbs, reason, expiresDay: d.dayAbs + 720 });
+  const count = activeStrikes(h, d.dayAbs);
+  const dryDays = count>=2 ? 42 : 21;
+  h.dryUntilDay = Math.max(h.dryUntilDay, d.dayAbs + dryDays);
+  h.stats.scrutiny = Math.max(6, h.stats.scrutiny - 18); // the Dean has made his point
+  const site = [h.lot.x, h.lot.z];
+  if (count >= 3){
+    charterRevoke(h);
+  } else {
+    evPush('STRIKE', 4, site,
+      'A letter on Dean’s office stationery is being read aloud on the porch of '+h.frat.name+'. It is not fan mail.',
+      { house: h.frat.key, lore: loreStrike(h, reason, count) });
+  }
+}
+function charterRevoke(h){
+  const d = CLOCK.derive();
+  h.dark = true; h.everDark = true; h.darkSinceDay = d.dayAbs;
+  SIM.parties = SIM.parties.filter(p=>p.houseKey!==h.frat.key || p.state==='AFTERMATH' || p.state==='DONE');
+  for (const pid of h.roster){ PEOPLE[pid].standing = 'DISPERSED'; }
+  WORLD.darkKeys = WORLD.darkKeys || new Set();
+  WORLD.darkKeys.add('lot:'+h.lotId);
+  R.lastLitBucket = -1;
+  evPush('CHARTER', 5, [h.lot.x, h.lot.z],
+    'The letters are coming off the front of '+h.frat.name+'. Nobody is saying much.',
+    { house: h.frat.key, lore: loreCharter(h) });
+}
+function recharter(h){
+  const d = CLOCK.derive();
+  h.dark = false; h.strikes = []; h.dryUntilDay = 0;
+  h.stats.prestige = 30; h.stats.brotherhood = 62; h.stats.funding = 350; h.stats.scrutiny = 10;
+  h.roster = [];
+  for (let cy=1; cy<=2; cy++){ const n = rhi(5,8); for (let i=0;i<n;i++) h.roster.push(newPerson('BROTHER', h.frat.key, cy).pid); }
+  assignNotables(h);
+  if (WORLD.darkKeys) WORLD.darkKeys.delete('lot:'+h.lotId);
+  R.lastLitBucket = -1;
+  evPush('RECHARTER', 4, [h.lot.x, h.lot.z],
+    'There are lights on again at '+h.frat.name+'. Somebody found the old composite photos in the attic.',
+    { house: h.frat.key, lore: loreRecharter(h) });
+}
+function partyIncidentTick(p, h){
+  if (!h || h.dark) return;
+  const crowdRatio = clamp(p.crowd / Math.max(1,p.peak), 0, 1.2);
+  const per = SIM.period || { party:1 };
+  const hazard = (0.006 + 0.03*h.ai.riskTol) * (0.45 + 0.55*crowdRatio) * clamp(per.party, 0.6, 1.6);
+  if (rh() >= hazard) return;
+  const roll = rh();
+  const site = p.porch.slice ? [p.porch[0], p.porch[1]] : p.porch;
+  p.incidents = p.incidents || [];
+  if (roll < 0.42){ // noise
+    p.incidents.push('noise');
+    if (p.offCampus){
+      const r = WORLD.rentals.find(x=>x.lotId===p.lotId);
+      if (r) r.patience -= rhi(4,8);
+      evPush('NOISE', 2, site, beatNoise(h, p.venueName), { house: h.frat.key });
+    } else {
+      h.stats.scrutiny += rhi(4,8) * tallPoppy(h);
+      evPush('NOISE', 2, site, beatNoise(h, p.venueName), { house: h.frat.key });
+      if (h.stats.scrutiny > 38 && rh() < 0.5){
+        p.crowd *= 0.55; p.copsCame = true;
+        evPush('COPS', 3, site, beatCops(h, p.venueName), { house: h.frat.key });
+        strikeRoll(h, 'the noise, the crowd, and what the officers described as "everything else"', 0.28);
+      }
+    }
+  } else if (roll < 0.57){
+    p.incidents.push('fight');
+    h.stats.brotherhood = Math.max(20, h.stats.brotherhood - 1.5);
+    evPush('FIGHT', 2, site, beatFight(), { house: h.frat.key });
+  } else if (roll < 0.67){
+    p.incidents.push('alarm');
+    h.stats.scrutiny += 2;
+    evPush('ALARM', 3, site, beatAlarm(p.venueName), { house: h.frat.key });
+  } else if (roll < 0.87){
+    p.incidents.push('legendary');
+    if (!p.legendary){ p.legendary = true; h.memory.legendary++; }
+    evPush('LEGEND', 3, site, beatLegendary(h, p.venueName), { house: h.frat.key });
+  } else if (roll < 0.94){
+    p.incidents.push('streak');
+    evPush('STREAK', 2, site, beatStreak(), { house: h.frat.key });
+  } else {
+    p.incidents.push('couch');
+    h.stats.scrutiny += rhi(5,9);
+    evPush('COUCH', 4, site,
+      'A couch is on fire in front of '+p.venueName+'. It is being treated as a send-off, not an emergency.',
+      { house: h.frat.key });
+    if (!p.offCampus) strikeRoll(h, 'the burning of furniture in the front yard', 0.3);
+  }
+}
+function resolveParty(p){
+  const h = houseByKey(p.houseKey);
+  if (!h) return;
+  const d = CLOCK.derive();
+  const crowdScore = clamp(p.maxCrowd / Math.max(1,p.peak), 0, 1.2);
+  const quality = 0.45*crowdScore + 0.3*(h.stats.brotherhood/100) + 0.25*rh() + (p.legendary?0.25:0) - (p.copsCame?0.15:0);
+  h.memory.partiesThisTerm++;
+  const diminish = Math.max(0.3, 1 - 0.1*(h.memory.partiesThisTerm-1));
+  let dPrest = (quality*5.2 - 1.5) * diminish * (SIM.period && SIM.period.key==='FANCYDRESS' ? 1.5 : 1);
+  if (dPrest > 0 && prestigeRank(h) === 0) dPrest *= 0.6;   // the top house impresses no one by winning
+  h.stats.prestige = clamp(h.stats.prestige + dPrest, 5, 100);
+  h.stats.social = clamp(h.stats.social + quality*2.2, 0, 100);
+  h.stats.funding -= Math.round(20 + p.peak*0.5);
+  h.stats.gpa = Math.max(1.8, h.stats.gpa - 0.004);
+  const worthChronicle = p.legendary || (p.incidents && p.incidents.length >= 2) || quality > 0.9;
+  if (worthChronicle){
+    const lore = loreParty(h, p, quality, p.legendary);
+    evPush('PARTYEND', p.legendary?3:1, [p.porch[0],p.porch[1]], 'The lights are coming up at '+p.venueName+'.', { house: h.frat.key, lore });
+  }
+}
+
+// ==== §13b YEARLY LIFECYCLE =================================================
+function dayOfYear(dayAbs){ return dayAbs % DAYS_PER_YEAR; }
+function dailyTick(d){
+  const doy = dayOfYear(d.dayAbs);
+  // daily decay & bookkeeping (dawn)
+  for (const h of WORLD.houses){
+    if (h.dark) continue;
+    h.stats.prestige += (50 - h.stats.prestige)*0.0045;             // tall poppies wilt, cellars rise
+    h.stats.scrutiny = Math.max(4, h.stats.scrutiny - 0.22);
+    h.stats.brotherhood += (58 - h.stats.brotherhood)*0.004;
+  }
+  // weekly economy: Mondays
+  if (d.dow===0){
+    for (const h of WORLD.houses){
+      if (h.dark) continue;
+      const bros = h.roster.filter(pid=>PEOPLE[pid].standing==='GOOD').length;
+      h.stats.funding += Math.round(bros*3.6);
+      h.stats.funding -= Math.round(16 + bros*0.6);          // the house eats money just standing there
+      h.stats.gpa = clamp(h.stats.gpa + (2.75 - h.stats.gpa)*0.03, 1.8, 4.0);
+      if (h.stats.funding > 2500 && rh() < 0.3){ h.stats.funding -= 700; h.stats.prestige = clamp(h.stats.prestige+1.5,0,100); } // a formal happens
+      for (const lotId of h.leases){
+        const r = WORLD.rentals.find(x=>x.lotId===lotId);
+        if (r){ h.stats.funding -= r.rent; r.patience = Math.min(96, r.patience + 1); }
+      }
+      if (h.stats.funding < 0){ h.stats.funding = 0; h.stats.prestige -= 0.4; } // broke is not a good look
+      assignNotables(h);
+    }
+    // landlords with no patience left pull the lease
+    for (const r of WORLD.rentals){
+      if (r.leasedBy && r.patience <= 0){
+        const h = houseByKey(r.leasedBy);
+        if (h){
+          h.leases = h.leases.filter(l=>l!==r.lotId);
+          evPush('LEASE', 4, [r.lot.x, r.lot.z],
+            r.landlord+' is done. The '+r.name+' lease is over, effective immediately.',
+            { house: h.frat.key, lore: 'That was the year '+r.landlord+' finally pulled the lease on '+r.name+'. Decades of parties, ended by certified mail. The seniors drove out one last time and sat on the deck until dark.' });
+        }
+        r.leasedBy = null; r.patience = 40;
+      }
+    }
+  }
+  // ---- academic-year milestones
+  if (doy === 0){ // September 1 — semester reset
+    for (const h of WORLD.houses){ h.memory.partiesThisTerm = 0; }
+  }
+  if (doy === 13){ bidDay(); }
+  if (doy === 100){ initiation(); }
+  if (doy === 105){ finalsCheck(); }
+  if (doy === 132){ for (const h of WORLD.houses){ h.memory.partiesThisTerm = 0; } }
+  if (doy === 197){ greekWeekResult(); }
+  if (doy === 228){ fancyDressLore(); }
+  if (doy === 270){ graduation(); }
+  if (doy === 300){ summerMoves(); }
+}
+function bidDay(){
+  const ranked = WORLD.houses.filter(h=>!h.dark).slice().sort((a,b)=>b.stats.prestige-a.stats.prestige);
+  ranked.forEach((h, idx)=>{
+    const n = clamp(Math.round(9 - idx*0.8 + rhr(-1.5, 1.5)), 3, 14);
+    for (let i=0;i<n;i++) h.roster.push(newPerson('PLEDGE', h.frat.key, 1).pid);
+    h.pledgeCount = n;
+    if (idx===0 || idx===ranked.length-1 || rh()<0.3){
+      evPush('BIDDAY', 3, [h.lot.x, h.lot.z],
+        'Bid day: a herd of freshmen is sprinting toward '+h.frat.name+' at an unsustainable pace.',
+        { house: h.frat.key, lore: lorePledgeClass(h, n) });
+    }
+  });
+  // sorority classes too (quietly)
+  for (const s of WORLD.sororities){
+    const n = rhi(7,11);
+    for (let i=0;i<n;i++) s.roster.push(newPerson('SOROR', s.sor.key, 1).pid);
+  }
+}
+function initiation(){
+  for (const h of WORLD.houses){
+    if (h.dark) continue;
+    const pledges = h.roster.map(pid=>PEOPLE[pid]).filter(p=>p.kind==='PLEDGE' && p.standing==='GOOD');
+    if (!pledges.length) continue;
+    for (const p of pledges) p.kind = 'BROTHER';
+    h.stats.brotherhood = clamp(h.stats.brotherhood + pledges.length*0.5, 0, 100);
+    if (rh() < 0.4){
+      evPush('INITIATION', 2, [h.lot.x, h.lot.z],
+        'Candles are moving behind the windows of '+h.frat.name+'. The pledges are pledges no more.',
+        { house: h.frat.key, lore: loreInitiation(h, pledges.length) });
+    }
+  }
+}
+function finalsCheck(){
+  for (const h of WORLD.houses){
+    if (h.dark) continue;
+    if (h.stats.gpa < 2.2){
+      h.stats.prestige -= 4;
+      evPush('GRADES', 3, [h.lot.x, h.lot.z],
+        'Grade reports are out. The Dean has circled '+h.frat.name+'’s house average in red pen.',
+        { house: h.frat.key, lore: 'The fall grades came back for '+h.frat.name+' and they were not good. Study hall was declared, contested, and eventually, mostly, attended.' });
+      h.stats.gpa += 0.25; // the scared-straight bounce
+    } else {
+      h.stats.gpa += 0.05;
+    }
+  }
+}
+function greekWeekResult(){
+  const live = WORLD.houses.filter(h=>!h.dark);
+  if (!live.length) return;
+  const scored = live.map(h=>({ h, s: h.stats.brotherhood*0.5 + h.stats.social*0.3 + rh()*40 }));
+  scored.sort((a,b)=>b.s-a.s);
+  const w = scored[0].h;
+  w.stats.prestige = clamp(w.stats.prestige + 7, 0, 100);
+  evPush('GREEKWEEK', 3, [w.lot.x, w.lot.z],
+    'The Greek Week trophy is going home with '+w.frat.name+'. The tug-of-war will be litigated for months.',
+    { house: w.frat.key, lore: w.frat.name+' took Greek Week that spring. The margin was thin and the celebrating was not.' });
+}
+function fancyDressLore(){
+  const live = WORLD.houses.filter(h=>!h.dark);
+  const scored = live.map(h=>({ h, s: h.stats.social*0.5 + h.stats.funding*0.02 + rh()*30 }));
+  scored.sort((a,b)=>b.s-a.s);
+  const w = scored.length ? scored[0].h : null;
+  if (w){
+    w.stats.prestige = clamp(w.stats.prestige + 6, 0, 100);
+    evPush('FANCYDRESS', 4, [52, -142],
+      'Fancy Dress is tonight. The whole campus smells like corsages and borrowed cologne.',
+      { house: w.frat.key, lore: 'Fancy Dress that year belonged to '+w.frat.name+' — the after-party circuit ran until dawn and the brunch afterward was quiet as a chapel.' });
+  }
+}
+function graduation(){
+  const names = [];
+  for (const h of WORLD.houses){
+    const grads = h.roster.map(pid=>PEOPLE[pid]).filter(p=>p.classYear>=4 && p.standing==='GOOD');
+    if (grads.length && rh()<0.5){
+      const sample = grads.slice(0,3).map(p=>p.name).join(', ');
+      evPush('GRADUATION', 2, [52,-142], 'Chairs on the Colonnade lawn. Gowns. Somebody’s little brother crying, allegedly about allergies.',
+        { house: h.frat.key, lore: loreGraduation(h, sample) });
+    }
+    for (const p of grads){ p.standing = 'GRADUATED'; }
+    h.roster = h.roster.filter(pid=>PEOPLE[pid].standing==='GOOD');
+    for (const pid of h.roster){ const p = PEOPLE[pid]; if (p.standing==='GOOD') p.classYear++; }
+    assignNotables(h);
+  }
+  for (const s of WORLD.sororities){
+    for (const pid of s.roster){ const p = PEOPLE[pid]; if (p.classYear>=4) p.standing='GRADUATED'; }
+    s.roster = s.roster.filter(pid=>PEOPLE[pid].standing==='GOOD');
+    for (const pid of s.roster) PEOPLE[pid].classYear++;
+  }
+}
+function summerMoves(){
+  const d = CLOCK.derive();
+  for (const h of WORLD.houses){
+    if (h.dark && (d.dayAbs - h.darkSinceDay) > 720 + rh()*720){ recharter(h); continue; }
+    if (h.dark) continue;
+    // lease shopping: party-hungry or recently-dry houses want off-campus real estate
+    const wantsLease = h.leases.length===0 && (h.ai.partyHunger > 0.55 || h.strikes.length > 0) && h.stats.funding > 500;
+    if (wantsLease){
+      const open = WORLD.rentals.filter(r=>!r.leasedBy);
+      if (open.length){
+        const r = open[rhi(0, open.length-1)];
+        r.leasedBy = h.frat.key;
+        h.leases.push(r.lotId);
+        evPush('LEASE', 2, [r.lot.x, r.lot.z],
+          h.frat.name+' has signed for '+r.name+'. The landlord, '+r.landlord+', has seen some things and signed anyway.',
+          { house: h.frat.key, lore: h.frat.name+' picked up the lease on '+r.name+' that summer. The first thing moved in was the stereo; the second was a couch nobody claims to have bought.' });
+      }
+    }
+  }
+}
+
+// ==== §18b HEADLESS HARNESS =================================================
+SIM.fastSim = function(years){
+  const t0 = performance.now();
+  const target = CLOCK.t + Math.round(years*DAYS_PER_YEAR*TICKS_PER_DAY);
+  const saved = SIM.effRate; SIM.effRate = 99999;
+  while (CLOCK.t < target){ CLOCK.t++; simTick(); }
+  SIM.effRate = saved;
+  return { ms: Math.round(performance.now()-t0), audit: SIM.audit() };
+};
+SIM.audit = function(){
+  const d = CLOCK.derive();
+  return {
+    date: MONTHS[d.month]+' '+d.dayInMonth+' yr'+d.year,
+    houses: WORLD.houses.map(h=>({
+      k: h.frat.key, prest: Math.round(h.stats.prestige), fund: Math.round(h.stats.funding),
+      bro: Math.round(h.stats.brotherhood), gpa: +h.stats.gpa.toFixed(2), scr: Math.round(h.stats.scrutiny),
+      strikes: activeStrikes(h, d.dayAbs), dark: h.dark, roster: h.roster.length, leases: h.leases.length,
+    })),
+    people: PEOPLE.length, chronicle: EV.chronicle.length,
+    dark: WORLD.houses.filter(h=>h.dark).length,
+  };
+};
+SIM.hash = function(){
+  let h = 2166136261 >>> 0;
+  for (const c of EV.chronicle){
+    const s = c.t + '|' + c.text;
+    for (let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  }
+  return ('0000000' + h.toString(16)).slice(-8);
+};
 
 /*==APPEND==*/
 </script>
