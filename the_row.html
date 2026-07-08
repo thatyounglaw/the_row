@@ -964,6 +964,7 @@ function buildWater(){
   g.computeVertexNormals();
   const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors:true, transparent:true, opacity:0.92 }));
   m.name='water';
+  WORLD.meshes.water = m;
   return m;
 }
 
@@ -1511,7 +1512,15 @@ function updateAtmosphere(){
     R.sky.material.uniforms.topColor.value.copy(top);
     R.sky.material.uniforms.horizonColor.value.copy(hor);
   }
+  const wx = (SIM.weather && SIM.weather.state) || 'clear';
+  if (wx !== 'clear'){
+    const grayC = _c2.setHex(0x9aa4ae);
+    top.lerp(grayC, wx==='rain'?0.7:0.45);
+    hor.lerp(grayC, wx==='rain'?0.6:0.35);
+  }
   R.scene.fog.color.copy(hor).lerp(top, 0.35);
+  R.scene.fog.near = wx==='rain' ? 550 : wx==='gray' ? 1000 : 1500;
+  R.scene.fog.far  = wx==='rain' ? 2800 : 5000;
   // sun path: rises ~6, sets ~19; azimuth arcs south
   const dayT = clamp((hour-6)/13, 0, 1);
   const sunAlt = Math.sin(dayT*Math.PI) * 0.95;
@@ -1519,7 +1528,8 @@ function updateAtmosphere(){
   const sx = Math.sin(sunAz)*Math.cos(sunAlt), sy = Math.max(Math.sin(sunAlt), -0.3), sz = Math.cos(sunAz)*Math.cos(sunAlt);
   R.sun.position.set(CAM.fx + sx*1200, sy*1400 + 80, CAM.fz + sz*1200);
   R.sun.target.position.set(CAM.fx, 0, CAM.fz);
-  R.sun.color.copy(sunC); R.sun.intensity = sunI;
+  R.sun.color.copy(sunC);
+  R.sun.intensity = sunI * (wx==='rain' ? 0.45 : wx==='gray' ? 0.72 : 1);
   R.hemi.intensity = hemiI;
   R.hemi.color.copy(top).lerp(_c2.setHex(0xffffff), 0.4);
   if (R.sky) {
@@ -1568,7 +1578,7 @@ function boot(){
   WORLD.classYear = 3 + (xmur3(seed)() % 6); // the remembering class: '03–'08 → year one falls 1999–2004
   document.getElementById('subtitle').textContent = "as remembered by the Class of '0" + WORLD.classYear;
   // start on a Friday evening in mid-September, golden hour
-  CLOCK.t = (11)*TICKS_PER_DAY + Math.floor(17.5*4); // day 12 of September = Friday (day 11, 0-indexed, %7 = 4 → Friday)
+  CLOCK.t = (11)*TICKS_PER_DAY + Math.floor(19.75*4); // day 12 of September = Friday (day 11, 0-indexed, %7 = 4 → Friday)
   for (const w of WINDOWS.items) w.lr = 0; // populated after build
 
   const loadmsg = document.getElementById('loadmsg');
@@ -1596,11 +1606,14 @@ function boot(){
     ['planting the oaks…', ()=>{ for (const m of buildTrees()) R.scene.add(m); R.scene.add(buildCars()); }],
     ['hanging the porch lights…', ()=>{
       navBuild(); simCollectPOIs(); dynInit(); hud2Init(); beatTickerInit();
-      chronInit(); pickInit(); actsInit();
-      DIR.suspendUntil = performance.now()/1000 + 14;   // let the postcard breathe first
       const d0 = CLOCK.derive();
       SIM.period = calPeriod(d0.dayAbs % DAYS_PER_YEAR);
       primeWeekend();
+    }],
+    ['remembering last year…', ()=>{
+      SIM.fastSim(364/360);           // one year of history so the chronicle opens deep
+      chronInit(); pickInit(); actsInit();
+      DIR.suspendUntil = performance.now()/1000 + 14;   // let the postcard breathe first
     }],
   ];
   let i = 0;
@@ -1645,7 +1658,7 @@ window.addEventListener('error', e=>{ if (e.error) showError(e.error); });
 let _lastT = 0;
 function animate(ts){
   requestAnimationFrame(animate);
-  const dt = Math.min(0.05, (ts-_lastT)/1000 || 0.016);
+  const dt = Math.min(0.1, (ts-_lastT)/1000 || 0.016);
   _lastT = ts;
   const eff = resolveEffRate();
   SIM.effRate = eff;
@@ -1660,6 +1673,7 @@ function animate(ts){
   updateHUD();
   hud2Tick();
   beatTickerUpdate(dt);
+  seasonUpdate();
   dirUpdate(ts/1000, dt);
   dynUpdate(dt, ts/1000);
   R.renderer.render(R.scene, R.camera);
@@ -1802,7 +1816,7 @@ function simCollectPOIs(){
   SIM.pois = p;
 }
 
-const PARTY_THEMES_LITE = ['bar night','band party','theme party','DJ night','date function pregame','porch party'];
+const PARTY_THEMES_LITE = ['bar night','band party','Das Klub night','DJ night','date function pregame','porch party','redneck party','toga party','decades party','graffiti party'];
 
 function planWeekend(baseDay){
   const per = calPeriod(baseDay % DAYS_PER_YEAR);
@@ -1842,7 +1856,14 @@ function planWeekend(baseDay){
 
 function partyTargetCrowd(p, m){ // analytic crowd curve, m = sim-minutes now
   const dt = m - p.t0;
+  const wm = (typeof weatherCrowdMult==='function') ? weatherCrowdMult() : 1;
   if (dt < 0) return 0;
+  if (wm !== 1){
+    if (dt < 90) return p.peak * (dt/90) * 0.85 * wm;
+    if (dt < 240) return p.peak * (0.85 + 0.15*Math.sin((dt-90)/150*Math.PI)) * wm;
+    if (dt < 360) return p.peak * Math.max(0, 1 - (dt-240)/120) * wm;
+    return 0;
+  }
   if (dt < 90) return p.peak * (dt/90) * 0.85;
   if (dt < 240) return p.peak * (0.85 + 0.15*Math.sin((dt-90)/150*Math.PI));
   if (dt < 360) return p.peak * Math.max(0, 1 - (dt-240)/120);
@@ -1904,6 +1925,7 @@ function walkerTargetCount(){
     case 'NIGHT': base = wk ? 150 : 22; break;
     default: base = wk ? 20 : 6;
   }
+  if (SIM.weather && SIM.weather.state==='rain') base *= 0.55;
   return Math.round(base * per.campus);
 }
 function spawnWalker(from, to, opts){
@@ -2034,6 +2056,7 @@ function simTick(){
   if (d.dow===3 && d.hour>=18 && SIM.lastWeekPlan !== d.dayAbs){
     SIM.lastWeekPlan = d.dayAbs;
     planWeekend(d.dayAbs);
+    planMixers(d.dayAbs);
   }
   partyTick();
   walkerTick();
@@ -2051,7 +2074,7 @@ function resolveEffRate(){
   const anyLive = SIM.parties.some(p=>p.state==='DOORS'||p.state==='PEAK');
   const ph = dayPhase(d.hour);
   if (anyLive) return 5;
-  if (isWeekend(d.dow) && (ph==='EVENING'||ph==='NIGHT')) return 12;
+  if (isWeekend(d.dow) && (ph==='EVENING'||ph==='NIGHT')) return 25;
   if (ph==='LATE' || ph==='DAWN') return 240;
   if (ph==='CLASS' || ph==='AFTERNOON' || ph==='EVENING') return 45;
   return 90;
@@ -2062,6 +2085,7 @@ function primeWeekend(){ // seed the current week so Friday night lights up on l
   const lastThu = d.dayAbs - ((d.dow - 3 + 7) % 7);
   SIM.lastWeekPlan = lastThu;
   planWeekend(lastThu);
+  planMixers(lastThu);
 }
 
 // ==== §16b DYNAMIC RENDER (people, parties, vehicles) =======================
@@ -2125,6 +2149,13 @@ function dynInit(){
     acc.box(0, 0.55, 0, 4.6, 1.0, 1.9, 0, 0xe8e4da);
     acc.box(-0.2, 1.35, 0, 2.5, 0.7, 1.7, 0, 0x23252a);
     acc.box(-0.2, 1.85, 0, 0.9, 0.22, 1.2, 0, 0xb03040);
+    const m = new THREE.Mesh(acc.build(), new THREE.MeshLambertMaterial({ vertexColors:true }));
+    m.visible=false; R.scene.add(m); return m;
+  })();
+  DYN.vans.trip = (function(){
+    const acc = new GeoAcc();
+    acc.box(0, 0.55, 0, 4.6, 1.0, 1.9, 0, 0x2e4a2e);
+    acc.box(-0.2, 1.35, 0, 2.5, 0.7, 1.7, 0, 0x1f3220);
     const m = new THREE.Mesh(acc.build(), new THREE.MeshLambertMaterial({ vertexColors:true }));
     m.visible=false; R.scene.add(m); return m;
   })();
@@ -2279,7 +2310,7 @@ function dynUpdate(dtReal, tReal){
   const ok = Array.from(override).sort().join('|');
   if (ok !== DYN.lastOverrideKey){ DYN.lastOverrideKey = ok; R.lastLitBucket = -1; }
   // ---- vehicles
-  for (const key of ['van','cop','keg']) DYN.vans[key].visible = false;
+  for (const key of ['van','cop','keg','trip']) DYN.vans[key].visible = false;
   if (!hide){
     for (const v of SIM.vehicles){
       const mesh = DYN.vans[v.kind];
@@ -2290,15 +2321,29 @@ function dynUpdate(dtReal, tReal){
       mesh.rotation.y = heading + Math.PI/2;
     }
   }
+  // ---- flood: the river remembers where it used to live
+  if (WORLD.meshes.water){
+    const d2n = CLOCK.derive();
+    const targetY = (SIM.floodUntilDay && d2n.dayAbs <= SIM.floodUntilDay) ? 1.6 : 0;
+    WORLD.meshes.water.position.y += (targetY - WORLD.meshes.water.position.y) * Math.min(1, dtReal*0.5);
+  }
   // ---- cadets: dawn formation on the parade ground
-  const cadetsOn = !hide && d.hour>=6.4 && d.hour<7.4 && (SIM.period && SIM.period.campus>0.5);
+  const parade = SIM.cadetParadeUntil && nowMin() < SIM.cadetParadeUntil;
+  const cadetsOn = !hide && (parade || (d.hour>=6.4 && d.hour<7.4 && (SIM.period && SIM.period.campus>0.5)));
   if (cadetsOn){
+    let px, pz, heading;
+    if (parade){
+      const tp = 1 - (SIM.cadetParadeUntil - nowMin())/90;
+      px = lerp(520, -340, clamp(tp,0,1)); pz = -60;
+      heading = Math.atan2(-1, 0);
+    } else {
     const t = (d.hour-6.4)/1.0;
     const cx = 620, cz = -66, rx = 66, rz = 44;
     const ang = t*Math.PI*2*1.2;
     const hx = Math.cos(ang), hz = Math.sin(ang)*0.8;
-    const px = cx + hx*rx*0.5, pz = cz + hz*rz*0.5;
-    const heading = Math.atan2(-Math.sin(ang), Math.cos(ang)*0.5);
+    px = cx + hx*rx*0.5; pz = cz + hz*rz*0.5;
+    heading = Math.atan2(-Math.sin(ang), Math.cos(ang)*0.5);
+    }
     let n=0;
     for (let r=0;r<6;r++) for (let c=0;c<8;c++){
       const ox = (c-3.5)*1.4, oz = (r-2.5)*1.7;
@@ -2424,6 +2469,8 @@ function initHouseLedgers(){
       for (let i=0;i<n;i++) s.roster.push(newPerson('SOROR', s.sor.key, cy).pid);
     }
   }
+  WORLD.rel = { ss: new Float32Array(5*8) };
+  for (let i=0;i<WORLD.rel.ss.length;i++) WORLD.rel.ss[i] = rwr(5, 30);
   // starting leases: the party-forward houses hold the party real estate
   const wanting = WORLD.houses.slice().sort((a,b)=> ARCH_INIT[b.frat.key][6]-ARCH_INIT[a.frat.key][6]);
   const pool = WORLD.rentals.slice();
@@ -2631,11 +2678,33 @@ function recharter(h){
     'There are lights on again at '+h.frat.name+'. Somebody found the old composite photos in the attic.',
     { house: h.frat.key, lore: loreRecharter(h) });
 }
+const VIBES = [
+  'The porch of {V} is chanting somebody’s name. He is pretending to hate it.',
+  'A dance circle has opened at {V}. A brave man enters. The worm is attempted.',
+  'The crowd at {V} has begun the singalong portion of the evening. Every word. No shame.',
+  'Two pledges at {V} are conducting keg logistics with the gravity of a space launch.',
+  'Someone at {V} has climbed onto a couch to make an announcement. History does not record the announcement.',
+  'The {V} porch is debating, at volume, whether a golf cart could make it to the river. A feasibility committee forms.',
+];
+function partyVibeTick(p){
+  if (p.state !== 'PEAK' || rh() >= 0.045) return;
+  let txt = VIBES[rhi(0, VIBES.length-1)].replace('{V}', p.venueName);
+  const h = houseByKey(p.houseKey);
+  if (h && h.roster.length){
+    const bro = PEOPLE[h.roster[rhi(0, h.roster.length-1)]];
+    if (bro && bro.standing==='GOOD'){
+      txt = txt.replace('somebody’s name', bro.name+'’s name').replace('A brave man enters', bro.name+' enters');
+      bro.mentions++;
+    }
+  }
+  evPush('VIBE', 2, [p.porch[0], p.porch[1]], txt, { house: p.houseKey });
+}
 function partyIncidentTick(p, h){
   if (!h || h.dark) return;
+  partyVibeTick(p);
   const crowdRatio = clamp(p.crowd / Math.max(1,p.peak), 0, 1.2);
   const per = SIM.period || { party:1 };
-  const hazard = (0.006 + 0.03*h.ai.riskTol) * (0.45 + 0.55*crowdRatio) * clamp(per.party, 0.6, 1.6);
+  const hazard = (0.012 + 0.042*h.ai.riskTol) * (0.45 + 0.55*crowdRatio) * clamp(per.party, 0.6, 1.6);
   if (rh() >= hazard) return;
   const roll = rh();
   const site = p.porch.slice ? [p.porch[0], p.porch[1]] : p.porch;
@@ -2652,7 +2721,7 @@ function partyIncidentTick(p, h){
       if (h.stats.scrutiny > 38 && rh() < 0.5){
         p.crowd *= 0.55; p.copsCame = true;
         evPush('COPS', 3, site, beatCops(h, p.venueName), { house: h.frat.key });
-        strikeRoll(h, 'the noise, the crowd, and what the officers described as "everything else"', 0.28);
+        strikeRoll(h, 'the noise, the crowd, and what the officers described as "everything else"', 0.34);
       }
     }
   } else if (roll < 0.57){
@@ -2676,7 +2745,7 @@ function partyIncidentTick(p, h){
     evPush('COUCH', 4, site,
       'A couch is on fire in front of '+p.venueName+'. It is being treated as a send-off, not an emergency.',
       { house: h.frat.key });
-    if (!p.offCampus) strikeRoll(h, 'the burning of furniture in the front yard', 0.3);
+    if (!p.offCampus) strikeRoll(h, 'the burning of furniture in the front yard', 0.38);
   }
 }
 function resolveParty(p){
@@ -2693,6 +2762,8 @@ function resolveParty(p){
   h.stats.social = clamp(h.stats.social + quality*2.2, 0, 100);
   h.stats.funding -= Math.round(20 + p.peak*0.5);
   h.stats.gpa = Math.max(1.8, h.stats.gpa - 0.004);
+  if (typeof p.mixerWith === 'number' && p.mixerWith >= 0) resolveMixer(p, h, quality);
+  else romanceAtParty(p, h, quality);
   const worthChronicle = p.legendary || (p.incidents && p.incidents.length >= 2) || quality > 0.9;
   if (worthChronicle){
     const lore = loreParty(h, p, quality, p.legendary);
@@ -2704,6 +2775,14 @@ function resolveParty(p){
 function dayOfYear(dayAbs){ return dayAbs % DAYS_PER_YEAR; }
 function dailyTick(d){
   const doy = dayOfYear(d.dayAbs);
+  weatherDaily(d);
+  prankTick(d);
+  spectacleRolls(d);
+  if (d.dow===0) romanceWeekly();
+  if (d.dow===4 && rh()<0.12 && SIM.period && SIM.period.campus>0.5) roadTrip();
+  if (doy===221) fancyDressScramble();
+  if (doy===226) fancyDressParties(d.dayAbs);
+  if (SIM.floodUntilDay && d.dayAbs > SIM.floodUntilDay) SIM.floodUntilDay = 0;
   // daily decay & bookkeeping (dawn)
   for (const h of WORLD.houses){
     if (h.dark) continue;
@@ -2713,6 +2792,7 @@ function dailyTick(d){
   }
   // weekly economy: Mondays
   if (d.dow===0){
+    if (WORLD.rel) for (let i=0;i<WORLD.rel.ss.length;i++) WORLD.rel.ss[i] += (25 - WORLD.rel.ss[i])*0.012;
     for (const h of WORLD.houses){
       if (h.dark) continue;
       const bros = h.roster.filter(pid=>PEOPLE[pid].standing==='GOOD').length;
@@ -2744,6 +2824,11 @@ function dailyTick(d){
   // ---- academic-year milestones
   if (doy === 0){ // September 1 — semester reset
     for (const h of WORLD.houses){ h.memory.partiesThisTerm = 0; }
+    if (d.year > 0 && d.year % 6 === 0){
+      evPush('AMBER', 1, [52,-142],
+        'The freshmen have arrived. They have the same flip phones, the same burned CDs, the same three polo colors.',
+        { lore: 'Another class arrived at Colonnade with flip phones, Nalgenes, and a Dave Matthews bootleg burned onto a CD labeled in Sharpie. Time does not pass here. It circles the Colonnade like the road does, and everyone waves as it goes by.' });
+    }
   }
   if (doy === 13){ bidDay(); }
   if (doy === 100){ initiation(); }
@@ -2902,11 +2987,13 @@ const DIR = {
   on: true, holdUntil: 0, current: null, currentPri: 0,
   cooldowns: {}, suspendUntil: 0, pushTarget: 0, orbit: 0.02,
 };
-const DIR_COOL = { NOISE: 70, FIGHT: 90, LEGEND: 45, COPS: 40, STREAK: 60, ALARM: 60, PARTYEND: 120, BIDDAY: 30, GRADES: 60, INITIATION: 40, GREEKWEEK: 0, FANCYDRESS: 0, STRIKE: 0, CHARTER: 0, RECHARTER: 0, LEASE: 0, GRADUATION: 30, DEANWALK: 0, PAVILION: 0, MONEY: 60 };
+const DIR_COOL = { VIBE: 40, PRANK: 55, FLING: 90, COUPLE: 90, BREAKUP: 90, SCRAMBLE: 60, ROADTRIP: 60, MIXER: 70, MIXERBAD: 70, NOISE: 70, FIGHT: 90, LEGEND: 45, COPS: 40, STREAK: 60, ALARM: 60, PARTYEND: 120, BIDDAY: 30, GRADES: 60, INITIATION: 40, GREEKWEEK: 0, FANCYDRESS: 0, STRIKE: 0, CHARTER: 0, RECHARTER: 0, LEASE: 0, GRADUATION: 30, DEANWALK: 0, PAVILION: 0, MONEY: 60 };
 function dirShotFor(e){
   switch(e.type){
-    case 'CHARTER': case 'LEASE': case 'RECHARTER':
-      return { dist: 480, push: 260, hold: 16, pitch: -0.2 };
+    case 'CHARTER': case 'LEASE': case 'RECHARTER': case 'GRAVE': case 'HONOR':
+      return { dist: 480, push: 260, hold: 17, pitch: -0.2 };
+    case 'LMI': case 'LIVESTOCK': case 'FLOOD':
+      return { dist: 420, push: 200, hold: 15, pitch: -0.28 };
     case 'FANCYDRESS': case 'GREEKWEEK': case 'GRADUATION':
       return { dist: 380, push: 220, hold: 15, pitch: -0.3 };
     case 'BIDDAY':
@@ -2918,6 +3005,7 @@ function dirShotFor(e){
   }
 }
 function dirTakeShot(e, rt){
+  DBG.dirShots = (DBG.dirShots||0) + 1;
   DIR.current = e; DIR.currentPri = e.pri;
   const shot = dirShotFor(e);
   DIR.holdUntil = rt + shot.hold;
@@ -2937,6 +3025,7 @@ const IDLE_SPOTS = [
   [344,104,'Sorority Row'], [-330,44,'Davidson Green'],
 ];
 function dirIdle(rt){
+  DBG.dirIdles = (DBG.dirIdles||0) + 1;
   const d = CLOCK.derive();
   let spot;
   const live = SIM.parties.filter(p=>p.state==='DOORS'||p.state==='PEAK');
@@ -2981,6 +3070,7 @@ function dirSuspend(){ DIR.suspendUntil = performance.now()/1000 + 45; }
 
 // beat card (lower third)
 function beatCardShow(e){
+  DBG.beats = (DBG.beats||0) + 1;
   if (!EV.beatEl) return;
   const h = e.house ? houseByKey(e.house) : null;
   EV.beatEl.innerHTML = '';
@@ -3269,6 +3359,15 @@ const ACTS = {
     { key:'pavilion', label:'Book a big act at the pavilion', target:null, cdDays: 200 },
     { key:'pull',     label:'Pull a landlord’s lease',   target:'rental', cdDays: 120 },
     { key:'recharter',label:'Re-charter a dark house',   target:'house',  cdDays: 90 },
+    { key:'cupid',    label:'Play Cupid',                target:'house',  cdDays: 20 },
+    { key:'prankwar', label:'Spark a prank war',         target:'house',  cdDays: 90 },
+    { key:'sunshine', label:'Perfect weather all week',  target:null,     cdDays: 14 },
+    { key:'rainout',  label:'Rain out the weekend',      target:null,     cdDays: 14 },
+    { key:'mono',     label:'Start mono season',         target:null,     cdDays: 300 },
+    { key:'livestock',label:'Let the livestock loose',   target:null,     cdDays: 150 },
+    { key:'cadets',   label:'March the cadets through',  target:null,     cdDays: 60 },
+    { key:'alumnus',  label:'Send a legendary alumnus',  target:'house',  cdDays: 200 },
+    { key:'flood',    label:'Flood the river',           target:null,     cdDays: 400 },
   ],
 };
 function actsInit(){
@@ -3378,6 +3477,69 @@ function applyAct(key, target){
       recharter(h);
       break;
     }
+    case 'cupid': {
+      const h = target;
+      if (!h || h.dark){ ok=false; break; }
+      const bros = singlesOf(h), girls = singleSorors();
+      if (!bros.length || !girls.length){ ok=false; actHint('no eligible hearts available'); break; }
+      coupleForm(bros[rhi(0,bros.length-1)], girls[rhi(0,girls.length-1)], 'the '+h.frat.name+' porch');
+      break;
+    }
+    case 'prankwar': {
+      const h = target;
+      if (!h || h.dark){ ok=false; break; }
+      const others = WORLD.houses.filter(x=>x!==h && !x.dark);
+      if (!others.length){ ok=false; break; }
+      prankStart(h.frat.key, others[rhi(0,others.length-1)].frat.key, 'It started over a parking spot, or a girl, or a flag — accounts differ');
+      break;
+    }
+    case 'sunshine': {
+      SIM.weather = { state:'clear', untilDay: d.dayAbs+7, forced:true };
+      evPush('WEATHER', 2, [52,-142], 'The forecast has come back perfect for seven straight days. Attendance at afternoon classes is expected to collapse.', {});
+      break;
+    }
+    case 'rainout': {
+      SIM.weather = { state:'rain', untilDay: d.dayAbs+3, forced:true };
+      evPush('WEATHER', 2, [52,-142], 'Rain has settled over Lexford like a grudge. The weekend is canceled; the basements are not.', {});
+      break;
+    }
+    case 'mono': {
+      SIM.monoUntilDay = d.dayAbs + 21;
+      evPush('MONO', 3, [52,-142], 'The infirmary has posted a sign. It reads, in its entirety: YOU KNOW WHY YOU’RE HERE.',
+        { lore: 'Mono went through the mixer circuit like a rumor. The infirmary filled, the parties thinned, and the couples of the season were revealed by their synchronized absences.' });
+      break;
+    }
+    case 'livestock': {
+      const live = WORLD.houses.filter(h=>!h.dark);
+      if (!live.length){ ok=false; break; }
+      const h = live[rhi(0,live.length-1)];
+      evPush('LIVESTOCK', 4, [52,-142],
+        'A cow is loose on the Colonnade. Campus security is in pursuit at a respectful trot.',
+        { house: h.frat.key, lore: 'The '+h.frat.name+' party featured a cow, briefly, until it un-featured itself. It toured the Colonnade, declined the chapel steps, and was recovered near Generals Field, having seen more of campus than most seniors.' });
+      break;
+    }
+    case 'cadets': {
+      SIM.cadetParadeUntil = nowMin() + 90;
+      evPush('LMI', 3, [300,-60], 'A formation from LMI is marching down Row Street. Nobody knows why. It is magnificent.',
+        { lore: 'The cadets marched the full length of Row Street one evening, in step, eyes front, for reasons no one at either school ever explained. Porches stood and applauded. Both sides agreed never to speak of it.' });
+      break;
+    }
+    case 'alumnus': {
+      const h = target;
+      if (!h || h.dark){ ok=false; break; }
+      h.stats.funding += 2000;
+      evPush('ALUMNUS', 4, [h.lot.x, h.lot.z],
+        'A '+h.frat.name+' alumnus of legend has arrived unannounced. The package store has been notified.',
+        { house: h.frat.key, lore: 'A '+h.frat.name+' alumnus from the class of ’7'+rhi(1,9)+' appeared in a car nobody saw arrive, bought out the package store, told three stories that cannot be printed, settled the house’s debts, and was gone by dawn.' });
+      break;
+    }
+    case 'flood': {
+      SIM.floodUntilDay = d.dayAbs + 6;
+      evPush('FLOOD', 4, [150, 585],
+        'The river is up and still rising. The pole houses are pulling their furniture to high ground, meaning the roof.',
+        { lore: 'The river came up and took its usual tax: the bottom steps at the pole houses, one grill, and a canoe of unknown provenance. The brothers watched from the roofs, toasting the current like a parade.' });
+      break;
+    }
   }
   if (ok){
     ACTS.cd[key] = d.dayAbs + def.cdDays;
@@ -3408,6 +3570,409 @@ function clickWorld(clientX, clientY){
 }
 function watchToggle(){
   document.body.classList.toggle('watch');
+}
+
+// ==== §13c THE SCENE — romance, honestly ===================================
+// Everybody is twenty-one and sure they're playing it cool. Comedy lands on
+// both sides; cruelty on neither. Grave matters never enter this register.
+const WOMENS_COLLEGES = ['Holloway College', 'Sweetwater'];
+SIM.couples = [];
+SIM.prankWars = [];
+SIM.floodUntilDay = 0;
+SIM.monoUntilDay = 0;
+SIM.cadetParadeUntil = 0;
+function singlesOf(h){
+  return h.roster.map(pid=>PEOPLE[pid]).filter(p=>p.standing==='GOOD' && p.partner<0 && p.classYear>=1);
+}
+function singleSorors(){
+  const out = [];
+  for (const s of WORLD.sororities)
+    for (const pid of s.roster){ const p = PEOPLE[pid]; if (p.standing==='GOOD' && p.partner<0) out.push(p); }
+  return out;
+}
+function sororityOf(p){ return WORLD.sororities.find(s=>s.sor.key===p.orgKey); }
+function coupleForm(bro, girl, venueName){
+  bro.partner = girl.pid; girl.partner = bro.pid;
+  SIM.couples.push({ a: bro.pid, b: girl.pid, state:'FLING', sinceDay: CLOCK.derive().dayAbs, drama: 0 });
+  bro.mentions++; girl.mentions++;
+  const n = _txtCounter++;
+  const t = [
+    bro.name+' of '+houseByKey(bro.orgKey).frat.name+' and '+girl.first+' of '+orgName(girl)+' left '+venueName+' “to look at the stars.” The stars, that night, were in the direction of the diner.',
+    girl.first+' '+girl.last+' told her roommates it was nothing. She then referred to '+bro.name+'’s truck as “our truck.”',
+    bro.name+' did not return to the house until Tuesday. He offered no explanation, and has never needed one.',
+    'Witnesses place '+bro.name+' and '+girl.first+' on the library steps at 2 AM, deep in a conversation both would later describe, unconvincingly, as “about class.”',
+  ];
+  if (rh() < 0.22){
+    evPush('FLING', 2, siteOfHouse(bro.orgKey), bro.name+' and '+girl.first+' have discovered a shared interest in leaving separately but simultaneously.', { house: bro.orgKey, lore: pickT(t, n) });
+  }
+}
+function orgName(p){
+  const s = WORLD.sororities.find(x=>x.sor.key===p.orgKey);
+  return s ? s.sor.name : (houseByKey(p.orgKey) ? houseByKey(p.orgKey).frat.name : p.orgKey);
+}
+function siteOfHouse(key){
+  const h = houseByKey(key);
+  if (h) return [h.lot.x, h.lot.z];
+  const s = WORLD.sororities.find(x=>x.sor.key===key);
+  if (s) return [s.lot.x, s.lot.z];
+  return [0,0];
+}
+function romanceWeekly(){
+  const d = CLOCK.derive();
+  // flings mature or fizzle; couples risk drama; the girlfriend effect
+  for (let i=SIM.couples.length-1; i>=0; i--){
+    const c = SIM.couples[i];
+    const bro = PEOPLE[c.a], girl = PEOPLE[c.b];
+    if (bro.standing!=='GOOD' || girl.standing!=='GOOD'){ breakup(c, i, true); continue; }
+    if (c.state==='FLING'){
+      if (d.dayAbs - c.sinceDay > 35){
+        if (rh() < 0.5){
+          c.state = 'COUPLE';
+          const h = houseByKey(bro.orgKey);
+          if (h){
+            h.stats.brotherhood = Math.max(20, h.stats.brotherhood - 1.5); // we lost another one
+            if (rh() < 0.25){
+              const t = [
+                'It’s official: '+bro.name+' and '+girl.first+' '+girl.last+'. The house has lost a wingman and gained a standing dinner guest, and everyone is pretending to mind more than they do.',
+                'We lost '+bro.name+' to a girlfriend that '+(d.month<4?'fall':'spring')+'. He resurfaced months later looking extremely well rested and knowing several new restaurants.',
+                girl.first+' now has a drawer at the '+h.frat.name+' house, a fact the brothers discuss only in whispers, like weather on a farm.',
+              ];
+              evPush('COUPLE', 2, siteOfHouse(bro.orgKey), bro.name+' has been seen holding a purse outside the library. Voluntarily.', { house: bro.orgKey, lore: pickT(t, _txtCounter++) });
+            }
+          }
+        } else { breakup(c, i, false); continue; }
+      }
+    } else {
+      c.drama += rh() < 0.12 ? 1 : 0;
+      if (rh() < 0.025 + c.drama*0.01){ breakup(c, i, false); continue; }
+    }
+  }
+}
+function breakup(c, idx, quiet){
+  const bro = PEOPLE[c.a], girl = PEOPLE[c.b];
+  bro.partner = -1; girl.partner = -1;
+  SIM.couples.splice(idx, 1);
+  if (quiet || c.state==='FLING') return;
+  const h = houseByKey(bro.orgKey);
+  const t = [
+    bro.name+' and '+girl.first+' are done. He has rediscovered the acoustic guitar. The house has voted, formally, to hide it.',
+    girl.first+' ended it on the front walk of the '+orgName(girl)+' house. Witnesses agree she was kind, brief, and correct.',
+    'The breakup of '+bro.name+' and '+girl.first+' shook both houses. He walked the river path for a week; she went to Sweetwater for the weekend and came back fine, which somehow made it worse.',
+    bro.name+' burned a farewell CD about it. Track four was, sources confirm, a bold choice.',
+  ];
+  if (rh() < 0.28 && h){
+    evPush('BREAKUP', 2, siteOfHouse(bro.orgKey), 'Someone is playing the same sad song for the fourth consecutive time. The porch has emptied out of respect.', { house: bro.orgKey, lore: pickT(t, _txtCounter++) });
+  }
+}
+function romanceAtParty(p, h, quality){
+  if (quality < 0.45 || rh() > 0.16) return;
+  const bros = singlesOf(h);
+  const girls = singleSorors();
+  if (!bros.length || !girls.length) return;
+  const bro = bros[rhi(0, bros.length-1)];
+  const girl = girls[rhi(0, girls.length-1)];
+  coupleForm(bro, girl, p.venueName);
+}
+function fancyDressScramble(){
+  // six days out: the dateless scramble is a genre unto itself
+  const cands = [];
+  for (const h of WORLD.houses){ if (!h.dark) cands.push(...singlesOf(h).filter(p=>p.classYear>=2)); }
+  if (!cands.length) return;
+  const p = cands[rhi(0, cands.length-1)];
+  const t = [
+    'Six days to Fancy Dress and '+p.name+' had no date. The scramble that followed involved two phone trees, one borrowed convertible, and somebody’s cousin’s roommate from '+WOMENS_COLLEGES[0]+'.',
+    p.name+' asked three people to Fancy Dress in one afternoon, in what he maintains was the correct order. History has been kinder to the strategy than the witnesses were.',
+    'With days to spare, '+p.name+' secured a Fancy Dress date via a handwritten note delivered through two intermediaries, like a treaty.',
+  ];
+  evPush('SCRAMBLE', 2, siteOfHouse(p.orgKey), p.name+' is pacing the porch with the cordless phone and a legal pad of names.', { house: p.orgKey, lore: pickT(t, _txtCounter++) });
+}
+function roadTrip(){
+  const live = WORLD.houses.filter(h=>!h.dark);
+  if (!live.length) return;
+  const h = live[rhi(0, live.length-1)];
+  const college = WOMENS_COLLEGES[rhi(0, WOMENS_COLLEGES.length-1)];
+  if (rh() < 0.5){
+    const t = [
+      'Four brothers of '+h.frat.name+' left Friday for '+college+' “for a formal.” The car came back Sunday with three brothers and a promise.',
+      'A carload from '+h.frat.name+' road-tripped to '+college+' on a rumor. The rumor was half true, which for a rumor is excellent.',
+      h.frat.name+' sent a delegation to '+college+' with a cooler and a boombox. Diplomatic relations were described afterward as “warm.”',
+    ];
+    evPush('ROADTRIP', 2, [h.lot.x, h.lot.z], 'A car full of '+h.frat.name+' brothers is heading west on Route 9 with the windows down, dangerously optimistic.', { house: h.frat.key, lore: pickT(t, _txtCounter++) });
+  }
+  // the road-trip car, westbound
+  if (SIM.effRate <= 200){
+    const from = WORLD.builtDoors[h.lotId] || [h.lot.x, h.lot.z];
+    const path = navRoute(from[0], from[1], -676, 462);
+    path.push([-836, 458]);
+    const cum=[0];
+    for (let i=1;i<path.length;i++) cum.push(cum[i-1]+Math.sqrt(dist2(path[i-1][0],path[i-1][1],path[i][0],path[i][1])));
+    const ys = path.map(pt=>H(pt[0],pt[1])+0.15);
+    SIM.vehicles.push({ kind:'trip', oneway:{path,cum,ys,len:cum[cum.length-1]}, start:nowMin(), speed: 500, dwell: 2000 });
+  }
+}
+
+// ==== §13d MIXERS & THE SORORITY WEB =======================================
+function relSS(sIdx, hIdx){ return WORLD.rel.ss[sIdx*8 + hIdx]; }
+function bumpSS(sIdx, hIdx, amt){
+  const i = sIdx*8 + hIdx;
+  WORLD.rel.ss[i] = clamp(WORLD.rel.ss[i] + amt, -50, 100);
+}
+function planMixers(baseDay){
+  const per = calPeriod(baseDay % DAYS_PER_YEAR);
+  if (per.party <= 0.01) return;
+  for (let si=0; si<WORLD.sororities.length; si++){
+    if (rh() > (per.key==='MIXER' ? 0.6 : 0.3)) continue;
+    const s = WORLD.sororities[si];
+    // pick the suitor: rel-weighted with a taste for prestige
+    let best = -1, bestW = -1;
+    WORLD.houses.forEach((h, hi)=>{
+      if (h.dark || isDry(h, baseDay+1)) return;
+      const w = relSS(si, hi)*0.6 + h.stats.prestige*0.4 + rh()*30;
+      if (w > bestW){ bestW = w; best = hi; }
+    });
+    if (best < 0) continue;
+    const h = WORLD.houses[best];
+    const day = baseDay + (rh()<0.5?1:2);
+    const t0 = day*1440 + 20*60 + rhi(0,4)*15;
+    const themes = ['a decades party','a luau','a graffiti party','an 80s prom','a toga party'];
+    SIM.parties.push({
+      id:'mx'+day+'_'+h.frat.key+s.sor.key, houseKey: h.frat.key, lotId: h.lotId,
+      porch: h.porch, door: h.porch, offCampus: false,
+      venueName: 'the '+h.frat.name+' house', mixerWith: si,
+      theme: themes[rhi(0,themes.length-1)]+' mixer with '+s.sor.name,
+      t0, state:'SCHEDULED', peak: Math.round(40 + h.stats.social*0.4), crowd:0, maxCrowd:0,
+      kegs: rhi(1,3), incidents: [], legendary:false, resolved:false, copsCame:false,
+    });
+  }
+}
+function resolveMixer(p, h, quality){
+  const si = p.mixerWith;
+  const s = WORLD.sororities[si];
+  const hi = WORLD.houses.indexOf(h);
+  if (quality > 0.55){
+    bumpSS(si, hi, 8);
+    if (rh()<0.4){
+      const t = [
+        'The '+h.frat.name+'–'+s.sor.name+' mixer ran three hours past its stated end. Four new couples, one missing banner, zero regrets on the record.',
+        'By all accounts the '+s.sor.name+' mixer at '+h.frat.name+' was a triumph, which both houses reported to each other through intermediaries for a week.',
+      ];
+      evPush('MIXER', 2, [h.lot.x,h.lot.z], 'The mixer at '+h.frat.name+' has reached the group-singalong stage. There is no return from here.', { house: h.frat.key, lore: pickT(t, _txtCounter++) });
+    }
+    if (relSS(si, hi) > 72 && s.preferredKey !== h.frat.key){
+      s.preferredKey = h.frat.key;
+      evPush('PREFERRED', 3, [s.lot.x, s.lot.z],
+        s.sor.name+' has made its preference for '+h.frat.name+' quietly, unmistakably known.',
+        { house: h.frat.key, lore: s.sor.name+' made it known that year, in the way these things are made known, that '+h.frat.name+' was their house. The other seven houses noticed within the hour and have never fully recovered.' });
+    }
+    romanceAtParty(p, h, quality + 0.2);
+  } else {
+    bumpSS(si, hi, -6);
+    if (p.incidents.length && rh()<0.5){
+      evPush('MIXERBAD', 2, [h.lot.x,h.lot.z],
+        'The '+s.sor.name+' contingent has departed the mixer early, in formation, without goodbyes.',
+        { house: h.frat.key, lore: 'The '+h.frat.name+' mixer with '+s.sor.name+' ended early after '+(p.incidents.includes('fight')?'the scuffle':'the incident')+'. '+s.sor.name+' went cold on the house for a season, and the apology flowers were, sources agree, from a gas station.' });
+    }
+  }
+}
+
+// ==== §13e PRANK WARS =======================================================
+function prankStart(aKey, bKey, sparked){
+  if (SIM.prankWars.some(w=>(w.a===aKey&&w.b===bKey)||(w.a===bKey&&w.b===aKey))) return;
+  SIM.prankWars.push({ a:aKey, b:bKey, steps:0, max: rhi(3,6), nextDay: CLOCK.derive().dayAbs + rhi(2,5), turn: rh()<0.5 });
+  const ha = houseByKey(aKey), hb = houseByKey(bKey);
+  evPush('PRANKWAR', 3, [ha.lot.x, ha.lot.z],
+    'Something has started between '+ha.frat.name+' and '+hb.frat.name+'. Nobody will say what. Everybody knows.',
+    { house: aKey, lore: (sparked||'It started over something small, as the great ones always do')+' — and by week’s end '+ha.frat.name+' and '+hb.frat.name+' were fully at war.' });
+}
+const PRANKS = [
+  ['The composite has VANISHED from the {A} house. {B} denies everything with suspicious fluency.',
+   'The composite theft of that year is still discussed: {A}’s entire pictorial history, gone overnight. It reappeared at graduation, on an easel, wearing sunglasses.'],
+  ['Every chair in the {A} house is now on the roof, arranged as if for a meeting.',
+   '{B} moved every chair in the {A} house onto the roof, arranged in rows facing east. The photo ran in the campus paper under the headline SEATING AVAILABLE.'],
+  ['{B} pledges have cling-wrapped every car in the {A} lot. It is, witnesses admit, thorough work.',
+   'The cling-wrap job {B} did on the {A} parking lot consumed 41 rolls and one entire night. Respect was expressed, at volume, through profanity.'],
+  ['A goat is in the {A} basement. It seems calm. The brothers of {A} are not.',
+   'The goat that appeared in the {A} basement was traced to no one. It stayed three days, was named, and left better fed than it arrived. {B} sent a sympathy card.'],
+  ['The {A} lawn now features a FOR SALE sign and thirty pink flamingos. {B} is accepting no questions.',
+   'The {A} house woke to a FOR SALE sign, thirty flamingos, and an open-house listing in the classifieds. Eleven prospective buyers came by before noon. {B} provided refreshments.'],
+];
+function prankTick(d){
+  for (let i=SIM.prankWars.length-1; i>=0; i--){
+    const w = SIM.prankWars[i];
+    if (d.dayAbs < w.nextDay) continue;
+    const atk = w.turn ? w.a : w.b, def = w.turn ? w.b : w.a;
+    const ha = houseByKey(atk), hd = houseByKey(def);
+    if (!ha || !hd || ha.dark || hd.dark){ SIM.prankWars.splice(i,1); continue; }
+    w.steps++; w.turn = !w.turn; w.nextDay = d.dayAbs + rhi(3,7);
+    const pk = PRANKS[rhi(0, PRANKS.length-1)];
+    const beat = pk[0].replace(/\{A\}/g, hd.frat.name).replace(/\{B\}/g, ha.frat.name);
+    const lore = pk[1].replace(/\{A\}/g, hd.frat.name).replace(/\{B\}/g, ha.frat.name);
+    hd.stats.prestige = Math.max(5, hd.stats.prestige - 1.2);
+    ha.stats.social = clamp(ha.stats.social + 1, 0, 100);
+    evPush('PRANK', 3, [hd.lot.x, hd.lot.z], beat, { house: atk, lore: (w.steps>=2 && rh()<0.7) ? lore : null });
+    if (w.steps >= w.max){
+      SIM.prankWars.splice(i,1);
+      const t = [
+        'The prank war between '+ha.frat.name+' and '+hd.frat.name+' ended the way the great ones do: a 3 AM handshake at the diner and a bill nobody itemized.',
+        'IFC called both presidents in about the prank war. They emerged forty minutes later with straight faces that lasted eleven steps.',
+      ];
+      evPush('PRANKPEACE', 2, [ha.lot.x, ha.lot.z], 'Envoys from '+ha.frat.name+' and '+hd.frat.name+' have been seen sharing a pitcher. The war is over.', { house: atk, lore: pickT(t, _txtCounter++) });
+    }
+  }
+  // spontaneous sparks
+  if (rh() < 0.004 && SIM.prankWars.length < 2){
+    const live = WORLD.houses.filter(h=>!h.dark);
+    if (live.length >= 2){
+      const a = live[rhi(0,live.length-1)];
+      let b = live[rhi(0,live.length-1)];
+      if (a!==b) prankStart(a.frat.key, b.frat.key, null);
+    }
+  }
+}
+
+// ==== §13f SPECTACLES & THE GRAVE REGISTER =================================
+function spectacleRolls(d){
+  const doy = dayOfYear(d.dayAbs);
+  const per = SIM.period;
+  // LMI incident — roughly every other year, on a fall or spring weekend
+  if (isWeekend(d.dow) && rh() < 0.003 && per.party > 0.5){
+    const live = SIM.parties.filter(p=>p.state==='PEAK');
+    const h = live.length ? houseByKey(live[0].houseKey) : WORLD.houses.find(x=>!x.dark);
+    if (h){
+      evPush('LMI', 4, [520,-60],
+        'A formation from LMI is marching down Row Street after taps. Nobody knows why. It is magnificent.',
+        { house: h.frat.key, lore: 'Cadets came over the wall on a Friday night — two dozen, in step, straight to the '+h.frat.name+' party. By midnight the lawn tug-of-war was forty a side and the commandant’s official report used the word “regrettable” eleven times.' });
+    }
+  }
+  // livestock at large — spring term redneck season
+  if (per.key==='SPRINGTERM' && rh() < 0.003){
+    const live = WORLD.houses.filter(h=>!h.dark);
+    const h = live[rhi(0,live.length-1)];
+    evPush('LIVESTOCK', 4, [52,-142],
+      'A cow is loose on the Colonnade. Campus security is in pursuit at a respectful trot.',
+      { house: h.frat.key, lore: 'The '+h.frat.name+' redneck party featured a cow, briefly, until it un-featured itself. It toured the Colonnade, declined the chapel steps, and was recovered near Generals Field. It saw more of campus than most seniors.' });
+  }
+  // the legendary alumnus — Homecoming
+  if (per.key==='HOMECOMING' && rh() < 0.02 && !SIM._alumnusThisYear){
+    SIM._alumnusThisYear = true;
+    const live = WORLD.houses.filter(h=>!h.dark);
+    const h = live[rhi(0,live.length-1)];
+    h.stats.funding += 2000;
+    evPush('ALUMNUS', 4, [h.lot.x, h.lot.z],
+      'A '+h.frat.name+' alumnus of legend has arrived unannounced. The package store has been notified.',
+      { house: h.frat.key, lore: 'A '+h.frat.name+' alumnus from the class of ’7'+rhi(1,9)+' appeared at Homecoming in a car nobody saw arrive, bought out the package store, told three stories that cannot be printed, settled the house’s debts, and was gone by dawn.' });
+  }
+  if (doy===1) SIM._alumnusThisYear = false;
+  // the flood — early spring, the river takes its tax
+  if (doy===195 && rh() < 0.3){
+    SIM.floodUntilDay = d.dayAbs + rhi(4,9);
+    evPush('FLOOD', 4, [150, 585],
+      'The river is up and still rising. The pole houses are pulling their furniture to high ground, meaning the roof.',
+      { lore: 'The river came up that March and took its usual tax: the bottom steps at the pole houses, one grill, and a canoe of unknown provenance. The brothers watched from the roofs, toasting the current like it was a parade.' });
+    for (const r of WORLD.rentals){
+      if (r.arch==='POLE' && r.leasedBy && rh()<0.25) r.patience -= 20;
+    }
+  }
+  // mono season — deep winter, the mixer circuit's revenge
+  if (doy===150 && rh() < 0.35 && !SIM.monoUntilDay){
+    SIM.monoUntilDay = d.dayAbs + 21;
+    evPush('MONO', 3, [52,-142],
+      'The infirmary has posted a sign. It reads, in its entirety: YOU KNOW WHY YOU’RE HERE.',
+      { lore: 'Mono went through the mixer circuit like a rumor that winter. The infirmary filled, the parties thinned, and a generation learned the phrase “kissing disease” from a pamphlet they did not keep.' });
+  }
+  if (SIM.monoUntilDay && d.dayAbs > SIM.monoUntilDay) SIM.monoUntilDay = 0;
+  // honor hearing — rare, and never funny
+  if (rh() < 0.0006){
+    const live = WORLD.houses.filter(h=>!h.dark && h.roster.length>6);
+    if (live.length){
+      const h = live[rhi(0,live.length-1)];
+      const cleared = rh() < 0.55;
+      evPush('HONOR', 4, [52,-184],
+        'A single light is on in Founders Chapel tonight. An honor hearing is underway.',
+        { house: h.frat.key, lore: cleared
+          ? 'An accusation went to the Honor Council — a '+h.frat.name+' junior, a disputed exam. The hearing ran past midnight and he walked out cleared. Nobody brought it up again; that was the whole point of the system.'
+          : 'The Honor Council met, and by morning a '+h.frat.name+' junior had packed his room and gone. Nobody joked about it, then or later. Everyone had signed the same book, and everyone knew what it meant.' });
+      if (!cleared){
+        const jrs = h.roster.map(pid=>PEOPLE[pid]).filter(p=>p.classYear===3 && p.standing==='GOOD');
+        if (jrs.length){ jrs[0].standing = 'EXPELLED'; h.roster = h.roster.filter(pid=>PEOPLE[pid].standing==='GOOD'); }
+        h.stats.brotherhood = Math.max(20, h.stats.brotherhood - 4);
+      }
+    }
+  }
+  // the grave scandal — rare; written straight; real consequences
+  if (doy===61 && rh() < 0.10){ // Halloween season
+    const live = WORLD.houses.filter(h=>!h.dark);
+    if (live.length){
+      const h = live[rhi(0,live.length-1)];
+      h.stats.prestige = Math.max(5, h.stats.prestige - 14);
+      evPush('GRAVE', 4, [h.lot.x, h.lot.z],
+        'A photograph from the '+h.frat.name+' Halloween party has reached the Dean’s office, and the newspaper.',
+        { house: h.frat.key, lore: 'A photograph from the '+h.frat.name+' Halloween party reached the Dean’s office, and then the paper. There was nothing to defend and nobody seriously tried. The house took its strike, several brothers took a hard look at the company they kept, and the campus spent a season talking about who it wanted to be.' });
+      issueStrike(h, 'conduct the Dean’s letter called “beneath every tradition this college claims”');
+    }
+  }
+}
+
+// ==== §13g WEATHER & SEASONS ================================================
+SIM.weather = { state:'clear', untilDay: 0, forced: false };
+function weatherDaily(d){
+  if (SIM.weather.forced && d.dayAbs < SIM.weather.untilDay) return;
+  SIM.weather.forced = false;
+  const doy = dayOfYear(d.dayAbs);
+  const winter = doy>90 && doy<180;
+  const roll = rh();
+  SIM.weather.state = roll < (winter?0.42:0.62) ? 'clear' : roll < 0.85 ? 'gray' : 'rain';
+}
+function weatherCrowdMult(){
+  let m = 1;
+  if (SIM.weather.state==='rain') m *= 0.7;
+  if (SIM.monoUntilDay) m *= 0.72;
+  return m;
+}
+function seasonCanopyTint(doy, base, t01){
+  // 0 Sept … autumn ramp Oct–Nov, bare winter, spring green-up, summer full
+  const auburn = [0xb5651d, 0xc17a2b, 0x9c4a1e, 0xc9a227][Math.floor(t01*4)%4];
+  const bare = 0x6a5a44, fresh = 0x6fae5c;
+  if (doy < 30) return base;
+  if (doy < 60) return lerpColor(base, auburn, (doy-30)/30 * 0.85);
+  if (doy < 90) return lerpColor(auburn, bare, (doy-60)/30);
+  if (doy < 175) return bare;
+  if (doy < 205) return lerpColor(bare, fresh, (doy-175)/30);
+  if (doy < 240) return lerpColor(fresh, base, (doy-205)/35);
+  return base;
+}
+let _lastSeasonDay = -1;
+function seasonUpdate(){
+  const d = CLOCK.derive();
+  if (d.dayAbs === _lastSeasonDay || !WORLD.meshes.canopies) return;
+  // repaint at most once per sim-day, and only every 3rd day for cheapness
+  if (_lastSeasonDay >= 0 && Math.abs(d.dayAbs - _lastSeasonDay) < 3) return;
+  _lastSeasonDay = d.dayAbs;
+  const doy = dayOfYear(d.dayAbs);
+  const cans = WORLD.meshes.canopies;
+  const col = new THREE.Color();
+  for (let i=0;i<WORLD.treeData.length;i++){
+    const td = WORLD.treeData[i];
+    col.setHex(seasonCanopyTint((doy + Math.floor(hash01(i)*14)) % DAYS_PER_YEAR, td.baseCol, hash01(i*3.3)));
+    cans.setColorAt(i, col);
+  }
+  cans.instanceColor.needsUpdate = true;
+}
+
+// ==== §13h FANCY DRESS NIGHT ================================================
+function fancyDressParties(baseDay){
+  // every living house holds a formal pre-party; campus glows
+  for (const h of WORLD.houses){
+    if (h.dark) continue;
+    SIM.parties.push({
+      id:'fd'+baseDay+'_'+h.frat.key, houseKey: h.frat.key, lotId: h.lotId,
+      porch: h.porch, door: h.porch, offCampus: false,
+      venueName: 'the '+h.frat.name+' house', theme: 'Fancy Dress pre-party',
+      t0: baseDay*1440 + 19*60, state:'SCHEDULED',
+      peak: Math.round(35 + h.stats.social*0.5), crowd:0, maxCrowd:0,
+      kegs: 2, incidents: [], legendary: false, resolved: false, copsCame: false, formal: true,
+    });
+  }
 }
 
 /*==APPEND==*/
