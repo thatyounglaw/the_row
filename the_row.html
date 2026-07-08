@@ -42,6 +42,17 @@
     background:#2a3a5c; color:#e8e2d2; border:1px solid rgba(244,239,226,.25); border-radius:2px; padding:2px 8px;
   }
   #seedbox button:hover { background:#3a4e78; }
+  #speedbar {
+    position:absolute; bottom:14px; left:50%; transform:translateX(-50%); z-index:20;
+    background:rgba(16,22,38,.72); border:1px solid rgba(244,239,226,.18); border-radius:3px; padding:4px 6px;
+  }
+  #speedbar button {
+    background:transparent; border:1px solid transparent; color:#cfd4de; font-size:12px;
+    padding:3px 9px; cursor:pointer; font-family:Tahoma,Verdana,sans-serif; border-radius:2px;
+  }
+  #speedbar button:hover { color:#fff; }
+  #speedbar button.active { background:#2a3a5c; border-color:rgba(244,239,226,.25); color:#ffe9a8; }
+  #periodlabel { font-size:11px; margin-top:3px; color:#ffd98a; opacity:.85; font-style:italic; }
   #hint {
     position:absolute; bottom:14px; right:16px; z-index:20; text-align:right;
     color:rgba(244,239,226,.66); font-size:11px; font-family:Tahoma,Verdana,sans-serif;
@@ -160,7 +171,7 @@ const MONTHS = ['September','October','November','December','January','February'
 const DOW = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const CLOCK = {
   t: 0, frac: 0,                    // integer ticks + fractional carry
-  speed: 'weekend',
+  speed: 'documentary',
   paused: false,
   derive(){
     const dayAbs = Math.floor(this.t / TICKS_PER_DAY);
@@ -619,6 +630,7 @@ function buildDorm(acc, lot){
     windowRow(lot.x - fx*(D/2+0.1), g+2.6+f*3.2, lot.z - fz*(D/2+0.1), ry+Math.PI, 8, 3.3, 1.0, 1.3, key);
   }
   acc.box(lot.x + fx*(D/2+0.05), g+2.2, lot.z + fz*(D/2+0.05), 1.8, 2.4, 0.2, ry, 0x5a5248);
+  return { door:[lot.x + fx*(D/2+2.5), lot.z + fz*(D/2+2.5)] };
 }
 
 function buildStoreRow(acc, lot, stores){
@@ -694,6 +706,7 @@ function buildRental(acc, lot, arch){
     acc.box(cx, H(cx,cz)+0.55, cz, 2.4, 0.7, 1.0, cry, rwPick([0x7a5a48, 0x5a6a52, 0x6e5a6e]));
     acc.box(cx - Math.sin(cry)*0.4, H(cx,cz)+1.05, cz - Math.cos(cry)*0.4, 2.4, 0.75, 0.35, cry, rwPick([0x6a4a3a, 0x4a5a44]));
   }
+  return { door:[lot.x + fx*(D/2+3.5), lot.z + fz*(D/2+3.5)] };
 }
 
 function buildPoleHouse(acc, lot){
@@ -744,6 +757,7 @@ function buildHillRental(acc, lot){
   acc.box(lot.x + fx*(D/2+0.05), g+1.8, lot.z + fz*(D/2+0.05), 1.3, 2.1, 0.15, ry, PAL.woodDark);
   windowRow(lot.x + fx*(D/2+0.1), g+2.4, lot.z + fz*(D/2+0.1), ry, 2, 3.2, 1.0, 1.2, key);
   windowRow(lot.x - fx*(D/2+0.1), g+2.4, lot.z - fz*(D/2+0.1), ry+Math.PI, 2, 3.2, 1.0, 1.2, key);
+  return { door:[lot.x + fx*(D/2+2.5), lot.z + fz*(D/2+2.5)] };
 }
 
 function buildBarracks(acc, lot){
@@ -1093,11 +1107,11 @@ function buildStatics(){
   // institutions
   for (const lot of LOTS){
     switch(lot.kind){
-      case 'ACADEMIC': buildAcademic(acc, lot, { w:lot.w+2, cupola: lot.id==='AC2' }); break;
-      case 'CHAPEL':   buildChapel(acc, lot); break;
-      case 'LIBRARY':  buildAcademic(acc, lot, { w:34, d:20, h:11, cols:8, winf:7, color:0xe9e2d0, cupola:true }); break;
-      case 'COMMONS':  buildAcademic(acc, lot, { w:26, d:18, h:8, cols:4, winf:5, color:rwPick(PAL.brick), roof:0x50555e }); break;
-      case 'DORM':     buildDorm(acc, lot); break;
+      case 'ACADEMIC': WORLD.builtDoors[lot.id] = buildAcademic(acc, lot, { w:lot.w+2, cupola: lot.id==='AC2' }).door; break;
+      case 'CHAPEL':   WORLD.builtDoors[lot.id] = buildChapel(acc, lot).door; break;
+      case 'LIBRARY':  WORLD.builtDoors[lot.id] = buildAcademic(acc, lot, { w:34, d:20, h:11, cols:8, winf:7, color:0xe9e2d0, cupola:true }).door; break;
+      case 'COMMONS':  WORLD.builtDoors[lot.id] = buildAcademic(acc, lot, { w:26, d:18, h:8, cols:4, winf:5, color:rwPick(PAL.brick), roof:0x50555e }).door; break;
+      case 'DORM':     WORLD.builtDoors[lot.id] = buildDorm(acc, lot).door; break;
       case 'BARRACKS': buildBarracks(acc, lot); break;
       case 'PAVILION': WORLD.builtDoors[lot.id] = buildPavilion(acc, lot).door; break;
       case 'FIELD':    buildField(acc, lot); break;
@@ -1121,8 +1135,8 @@ function buildStatics(){
   }
   for (const r of WORLD.rentals){
     if (r.arch==='POLE') WORLD.builtDoors[r.lotId] = buildPoleHouse(acc, r.lot).door;
-    else if (r.arch==='HILL') buildHillRental(acc, r.lot);
-    else buildRental(acc, r.lot, r.arch);
+    else if (r.arch==='HILL') WORLD.builtDoors[r.lotId] = buildHillRental(acc, r.lot).door;
+    else WORLD.builtDoors[r.lotId] = buildRental(acc, r.lot, r.arch).door;
   }
   buildStatue(acc, 52, -142);
   // lampposts along the civilized streets
@@ -1310,9 +1324,11 @@ function updateWindowLights(hour){
   if (bucket === R.lastLitBucket || !WINDOWS.mesh) return;
   R.lastLitBucket = bucket;
   const day = hour>=6.5 && hour<17.5;
+  const ovr = (typeof DYN !== 'undefined') ? DYN.windowOverride : null;
   for (let i=0;i<WINDOWS.items.length;i++){
     const w = WINDOWS.items[i];
-    if (day) WINDOWS.mesh.setColorAt(i, WIN_DAY);
+    if (ovr && ovr.has(w.key)) WINDOWS.mesh.setColorAt(i, w.lr < 0.8 ? WIN_LIT : WIN_LIT2);
+    else if (day) WINDOWS.mesh.setColorAt(i, WIN_DAY);
     else if (w.lr < f) WINDOWS.mesh.setColorAt(i, w.lr < f*0.5 ? WIN_LIT : WIN_LIT2);
     else WINDOWS.mesh.setColorAt(i, WIN_DARK);
   }
@@ -1392,6 +1408,8 @@ function bindInput(dom){
     if (e.key==='2') CLOCK.speed='weekend';
     if (e.key==='3') CLOCK.speed='semester';
     if (e.key==='4') CLOCK.speed='saga';
+    if (e.key==='5' || e.key.toLowerCase()==='a') CLOCK.speed='documentary';
+    if (typeof hud2Refresh==='function') hud2Refresh();
   });
 }
 
@@ -1514,7 +1532,12 @@ function boot(){
     }],
     ['paving Row Street…', ()=>{ R.scene.add(buildRoads()); }],
     ['planting the oaks…', ()=>{ for (const m of buildTrees()) R.scene.add(m); R.scene.add(buildCars()); }],
-    ['hanging the porch lights…', ()=>{ /* reserved for phase 2 systems */ }],
+    ['hanging the porch lights…', ()=>{
+      navBuild(); simCollectPOIs(); dynInit(); hud2Init();
+      const d0 = CLOCK.derive();
+      SIM.period = calPeriod(d0.dayAbs % DAYS_PER_YEAR);
+      primeWeekend();
+    }],
   ];
   let i = 0;
   function step(){
@@ -1560,19 +1583,694 @@ function animate(ts){
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, (ts-_lastT)/1000 || 0.016);
   _lastT = ts;
+  const eff = resolveEffRate();
+  SIM.effRate = eff;
   if (!CLOCK.paused){
-    const simMin = dt * CFG.SPEEDS[CLOCK.speed];
-    CLOCK.frac += simMin/15;
-    while (CLOCK.frac >= 1){ CLOCK.frac -= 1; CLOCK.t++; }
+    CLOCK.frac += dt * eff / 15;
+    let guard = 0;
+    while (CLOCK.frac >= 1 && guard < 300){ CLOCK.frac -= 1; CLOCK.t++; simTick(); guard++; }
+    if (CLOCK.frac >= 1) CLOCK.frac = 0;
   }
   updateCamera(dt);
   updateAtmosphere();
   updateHUD();
+  hud2Tick();
+  dynUpdate(dt, ts/1000);
   R.renderer.render(R.scene, R.camera);
 }
 
 window.DBG = { draws: ()=> R.renderer.info.render.calls, world: WORLD, clock: CLOCK, cam: CAM };
 boot();
+
+// ==== §4b ACADEMIC CALENDAR =================================================
+// Year begins Sept 1 (day 0). Months are 30 days; the registrar has no comment.
+function calPeriod(dayInYear){
+  const d = dayInYear;
+  if (d < 14)               return { key:'RUSH',       label:'Fall Rush',        party:1.5, campus:1.1 };
+  if (d < 44)               return { key:'EARLYFALL',  label:'Fall Semester',    party:1.0, campus:1.0 };
+  if (d < 51)               return { key:'HOMECOMING', label:'Homecoming Week',  party:1.6, campus:1.2 };
+  if (d < 98)               return { key:'FALL',       label:'Fall Semester',    party:1.1, campus:1.0 };
+  if (d < 111)              return { key:'FINALS',     label:'Finals',           party:0.15, campus:0.9 };
+  if (d < 132)              return { key:'BREAK',      label:'Winter Break',     party:0.0, campus:0.05 };
+  if (d < 162)              return { key:'WINTER',     label:'Spring Semester',  party:0.9, campus:1.0 };
+  if (d < 191)              return { key:'MIXER',      label:'Mixer Season',     party:1.2, campus:1.0 };
+  if (d < 198)              return { key:'GREEKWEEK',  label:'Greek Week',       party:1.5, campus:1.2 };
+  if (d < 226)              return { key:'SPRING',     label:'Spring Semester',  party:1.1, campus:1.0 };
+  if (d < 229)              return { key:'FANCYDRESS', label:'Fancy Dress',      party:2.0, campus:1.2 };
+  if (d < 261)              return { key:'SPRINGTERM', label:'Spring Term',      party:1.3, campus:0.8 };
+  if (d < 270)              return { key:'FINALS2',    label:'Finals',           party:0.15, campus:0.9 };
+  if (d < 271)              return { key:'GRADUATION', label:'Graduation',       party:1.2, campus:1.3 };
+  return                           { key:'SUMMER',     label:'Summer',           party:0.0, campus:0.03 };
+}
+function dayPhase(hour){
+  if (hour>=6 && hour<9)   return 'DAWN';
+  if (hour>=9 && hour<13)  return 'CLASS';
+  if (hour>=13 && hour<18) return 'AFTERNOON';
+  if (hour>=18 && hour<22) return 'EVENING';
+  if (hour>=22 || hour<2)  return 'NIGHT';
+  return 'LATE';
+}
+function isWeekend(dow){ return dow===4 || dow===5; } // Fri, Sat
+function rh(){ return RNG.hist(); }                    // history stream — sim decisions only
+function rhr(a,b){ return a + (b-a)*RNG.hist(); }
+function rhi(a,b){ return a + Math.floor(RNG.hist()*(b-a+1)); }
+function ra(){ return RNG.ambient(); }                 // ambient stream — decoration only
+function rar(a,b){ return a + (b-a)*RNG.ambient(); }
+function raPick(arr){ return arr[Math.floor(RNG.ambient()*arr.length)]; }
+
+// ==== §6b NAV GRAPH & ROUTING ==============================================
+const NAV = { nodes: [], adj: [], cache: {} };
+function navBuild(){
+  const nodes = NAV.nodes, adj = NAV.adj;
+  function addNode(x,z){ nodes.push([x,z]); adj.push([]); return nodes.length-1; }
+  function link(a,b){ if (a!==b && !adj[a].includes(b)){ adj[a].push(b); adj[b].push(a); } }
+  for (const r of ROADS){
+    let prevIdx = -1;
+    for (let i=0;i<r.pts.length-1;i++){
+      const [ax,az]=r.pts[i], [bx,bz]=r.pts[i+1];
+      const segLen = Math.sqrt(dist2(ax,az,bx,bz));
+      const n = Math.max(1, Math.round(segLen/18));
+      for (let j=(i===0?0:1); j<=n; j++){
+        const idx = addNode(lerp(ax,bx,j/n), lerp(az,bz,j/n));
+        if (prevIdx>=0) link(prevIdx, idx);
+        prevIdx = idx;
+      }
+    }
+  }
+  // fuse junctions
+  for (let a=0;a<nodes.length;a++){
+    for (let b=a+1;b<nodes.length;b++){
+      if (dist2(nodes[a][0],nodes[a][1],nodes[b][0],nodes[b][1]) < 13*13) link(a,b);
+    }
+  }
+}
+function navNearest(x,z){
+  let best=-1, bd=1e18;
+  for (let i=0;i<NAV.nodes.length;i++){
+    const d = dist2(x,z,NAV.nodes[i][0],NAV.nodes[i][1]);
+    if (d<bd){ bd=d; best=i; }
+  }
+  return best;
+}
+function navRoute(ax,az,bx,bz){
+  const s = navNearest(ax,az), e = navNearest(bx,bz);
+  const key = s+'>'+e;
+  let mid = NAV.cache[key];
+  if (mid === undefined){
+    // dijkstra
+    const N = NAV.nodes.length;
+    const distArr = new Float64Array(N).fill(Infinity);
+    const prev = new Int32Array(N).fill(-1);
+    const visited = new Uint8Array(N);
+    distArr[s]=0;
+    for(;;){
+      let u=-1, ud=Infinity;
+      for (let i=0;i<N;i++) if (!visited[i] && distArr[i]<ud){ ud=distArr[i]; u=i; }
+      if (u<0 || u===e) break;
+      visited[u]=1;
+      for (const v of NAV.adj[u]){
+        const w = Math.sqrt(dist2(NAV.nodes[u][0],NAV.nodes[u][1],NAV.nodes[v][0],NAV.nodes[v][1]));
+        if (distArr[u]+w < distArr[v]){ distArr[v]=distArr[u]+w; prev[v]=u; }
+      }
+    }
+    mid = [];
+    let cur = e;
+    while (cur>=0){ mid.push(cur); cur = prev[cur]; }
+    mid.reverse();
+    if (mid[0]!==s) mid = [s,e]; // disconnected fallback: beeline
+    NAV.cache[key] = mid;
+  }
+  const path = [[ax,az]];
+  for (const i of mid) path.push([NAV.nodes[i][0], NAV.nodes[i][1]]);
+  path.push([bx,bz]);
+  return path;
+}
+
+// ==== §9 SIM CORE ==========================================================
+const SIM = {
+  parties: [],        // live + scheduled
+  walkers: [],        // ambient pedestrians (decoration)
+  vehicles: [],       // van, keg truck, patrol car
+  lastPhase: '',
+  lastDay: -1, lastWeekPlan: -1,
+  period: null,
+  effRate: 4,         // sim-minutes per real second, resolved each frame
+  pois: null,
+};
+function nowMin(){ return (CLOCK.t + CLOCK.frac) * 15; }
+
+function simCollectPOIs(){
+  const p = { dorms:[], academics:[], fratDoors:{}, fratPorch:{}, bars:[], commons:[] };
+  for (const lot of LOTS){
+    const d = WORLD.builtDoors[lot.id];
+    if (!d) continue;
+    if (lot.kind==='DORM') p.dorms.push(d);
+    else if (lot.kind==='ACADEMIC'||lot.kind==='CHAPEL'||lot.kind==='LIBRARY') p.academics.push(d);
+    else if (lot.kind==='COMMONS') p.commons.push(d);
+  }
+  for (const h of WORLD.houses){ p.fratDoors[h.frat.key] = WORLD.builtDoors[h.lotId]; p.fratPorch[h.frat.key] = h.porch; }
+  for (const b of WORLD.bars) p.bars.push([b.x, b.z]);
+  if (!p.bars.length) p.bars.push([-140, 250]);
+  if (!p.dorms.length) p.dorms.push([170, 132]);
+  if (!p.academics.length) p.academics.push([52, -142]);
+  SIM.pois = p;
+}
+
+// party archetype appetites: [friProb, satProb, peakCrowd]
+const PARTY_STYLE = {
+  RD:[0.85, 0.9, 85], ZI:[0.6, 0.7, 60], TK:[0.5, 0.65, 55], KR:[0.5, 0.6, 50],
+  PO:[0.45, 0.6, 60], SS:[0.3, 0.5, 45], NT:[0.35, 0.45, 40], OP:[0.25, 0.4, 35],
+};
+const PARTY_THEMES_LITE = ['bar night','band party','theme party','DJ night','date function pregame','porch party'];
+
+function planWeekend(baseDay){
+  const per = calPeriod(baseDay % DAYS_PER_YEAR);
+  if (per.party <= 0.01) return;
+  const weekStartDay = baseDay;
+  for (const h of WORLD.houses){
+    const style = PARTY_STYLE[h.frat.key];
+    for (const [offset, prob] of [[1, style[0]], [2, style[1]]]){ // Thu+1=Fri, Thu+2=Sat
+      if (rh() < prob * per.party){
+        const day = weekStartDay + offset;
+        const t0 = day*1440 + 21*60 + rhi(-3,4)*15;
+        SIM.parties.push({
+          id: 'p'+day+'_'+h.frat.key, houseKey: h.frat.key, lotId: h.lotId,
+          porch: h.porch, door: WORLD.builtDoors[h.lotId],
+          theme: PARTY_THEMES_LITE[rhi(0,PARTY_THEMES_LITE.length-1)],
+          t0, state:'SCHEDULED',
+          peak: Math.round(style[2] * clamp(per.party,0.5,1.6) * rhr(0.75,1.2)),
+          crowd: 0, kegs: rhi(2,4),
+        });
+      }
+    }
+  }
+}
+
+function partyTargetCrowd(p, m){ // analytic crowd curve, m = sim-minutes now
+  const dt = m - p.t0;
+  if (dt < 0) return 0;
+  if (dt < 90) return p.peak * (dt/90) * 0.85;
+  if (dt < 240) return p.peak * (0.85 + 0.15*Math.sin((dt-90)/150*Math.PI));
+  if (dt < 360) return p.peak * Math.max(0, 1 - (dt-240)/120);
+  return 0;
+}
+function partyState(p, m){
+  const dt = m - p.t0;
+  if (dt < -120) return 'SCHEDULED';
+  if (dt < 0)    return 'SETUP';
+  if (dt < 90)   return 'DOORS';
+  if (dt < 240)  return 'PEAK';
+  if (dt < 380)  return 'WINDDOWN';
+  const morningEnd = (Math.floor(p.t0/1440)+1)*1440 + 13*60;
+  if (m < morningEnd) return 'AFTERMATH';
+  return 'DONE';
+}
+
+function partyTick(){
+  const m = nowMin();
+  for (const p of SIM.parties){
+    const st = partyState(p, m);
+    if (st !== p.state) p.state = st;
+    if (st==='DOORS' || st==='PEAK' || st==='WINDDOWN'){
+      const target = partyTargetCrowd(p, m);
+      const delta = target - p.crowd;
+      p.crowd += delta * 0.12;
+      if (SIM.effRate <= 200){
+        if (delta > 4 && ra() < 0.35) spawnPartyGoer(p, true);
+        if (delta < -4 && ra() < 0.3) spawnPartyGoer(p, false);
+      }
+    } else if (st==='AFTERMATH' && p.crowd > 0){
+      p.crowd = 0;
+    }
+  }
+  if (SIM.parties.length > 60){
+    const cutoff = m - 3*1440;
+    SIM.parties = SIM.parties.filter(p => p.t0 > cutoff && p.state!=='DONE' || partyState(p, m)!=='DONE');
+  }
+}
+
+// ---- ambient walkers -------------------------------------------------------
+function walkerTargetCount(){
+  const d = CLOCK.derive();
+  const per = SIM.period || calPeriod(d.dayAbs % DAYS_PER_YEAR);
+  const ph = dayPhase(d.hour);
+  const wk = isWeekend(d.dow);
+  let base;
+  switch(ph){
+    case 'DAWN': base = 12; break;
+    case 'CLASS': base = 160; break;
+    case 'AFTERNOON': base = 55; break;
+    case 'EVENING': base = wk ? 90 : 45; break;
+    case 'NIGHT': base = wk ? 150 : 22; break;
+    default: base = wk ? 20 : 6;
+  }
+  return Math.round(base * per.campus);
+}
+function spawnWalker(from, to, opts){
+  opts = opts || {};
+  if (!from || !to) return;
+  const path = navRoute(from[0], from[1], to[0], to[1]);
+  const cum = [0];
+  for (let i=1;i<path.length;i++) cum.push(cum[i-1] + Math.sqrt(dist2(path[i-1][0],path[i-1][1],path[i][0],path[i][1])));
+  const ys = path.map(pt => H(pt[0], pt[1]) + 0.05);
+  SIM.walkers.push({
+    path, cum, ys, len: cum[cum.length-1],
+    depart: nowMin() + (opts.delay||0),
+    speed: opts.speed || rar(68, 92),         // meters per sim-minute — a brisk college walk
+    shirt: Math.floor(ra()*8),
+    bob: ra()*Math.PI*2,
+  });
+}
+function walkerPos(w, m){
+  const d = (m - w.depart) * w.speed;
+  if (d <= 0) return null;
+  if (d >= w.len) return 'done';
+  let i = 1;
+  while (i < w.cum.length && w.cum[i] < d) i++;
+  if (i >= w.path.length) return 'done';
+  const t = (d - w.cum[i-1]) / Math.max(0.01, w.cum[i]-w.cum[i-1]);
+  return [ lerp(w.path[i-1][0], w.path[i][0], t), lerp(w.ys[i-1], w.ys[i], t), lerp(w.path[i-1][1], w.path[i][1], t) ];
+}
+function pickSpawnPair(){
+  const p = SIM.pois;
+  const d = CLOCK.derive();
+  const ph = dayPhase(d.hour), wk = isWeekend(d.dow);
+  const dorm = ()=> raPick(p.dorms), acad = ()=> raPick(p.academics), bar = ()=> raPick(p.bars);
+  const houseDoor = ()=> { const hs = WORLD.houses; return p.fratDoors[hs[Math.floor(ra()*hs.length)].frat.key]; };
+  const livePorches = SIM.parties.filter(x=>x.state==='DOORS'||x.state==='PEAK').map(x=>x.porch);
+  const party = ()=> livePorches.length ? raPick(livePorches) : bar();
+  let from, to;
+  if (ph==='CLASS'){ if (ra()<0.5){ from=dorm(); to=acad(); } else { from=acad(); to=ra()<0.3?raPick(p.commons.length?p.commons:p.academics):acad(); } }
+  else if (ph==='AFTERNOON'){ const r=ra(); if (r<0.4){ from=acad(); to=dorm(); } else if (r<0.7){ from=dorm(); to=bar(); } else { from=dorm(); to=houseDoor(); } }
+  else if (ph==='EVENING'){ const r=ra(); if (wk && livePorches.length && r<0.35){ from=dorm(); to=party(); } else if (r<0.6){ from=houseDoor(); to=bar(); } else { from=dorm(); to=bar(); } }
+  else if (ph==='NIGHT'){ const r=ra(); if (livePorches.length && r<0.55){ from=ra()<0.5?party():bar(); to=party(); } else { from=bar(); to=houseDoor(); } }
+  else if (ph==='LATE'){ from=livePorches.length? party() : bar(); to=ra()<0.6?dorm():houseDoor(); }
+  else { from=dorm(); to=ra()<0.5?acad():raPick(p.commons.length?p.commons:p.academics); }
+  return [from, to];
+}
+function spawnPartyGoer(p, arriving){
+  const pois = SIM.pois;
+  const r = ra();
+  const other = pois.dorms.concat(pois.bars);
+  const src = r<0.7 ? raPick(other) : (SIM.parties.filter(x=>x!==p && (x.state==='PEAK'||x.state==='DOORS')).map(x=>x.porch)[0] || raPick(other));
+  if (arriving) spawnWalker(src, p.porch, {});
+  else spawnWalker(p.porch, raPick(other), {});
+}
+function walkerTick(){
+  if (SIM.effRate > 200) { if (SIM.walkers.length) SIM.walkers.length = 0; return; }
+  const m = nowMin();
+  SIM.walkers = SIM.walkers.filter(w => walkerPos(w, m) !== 'done' && (m - w.depart) < 90);
+  const target = walkerTargetCount();
+  const deficit = target - SIM.walkers.length;
+  if (deficit > 0){
+    const n = Math.min(5, Math.ceil(deficit*0.08));
+    for (let i=0;i<n;i++){
+      const [from,to] = pickSpawnPair();
+      spawnWalker(from, to, { delay: rar(0,10) });
+    }
+  }
+}
+
+// ---- vehicles --------------------------------------------------------------
+function vehicleRouteLoop(pts){
+  let path = [];
+  for (let i=0;i<pts.length;i++){
+    const a = pts[i], b = pts[(i+1)%pts.length];
+    const seg = navRoute(a[0],a[1],b[0],b[1]);
+    if (i>0) seg.shift();
+    path = path.concat(seg);
+  }
+  const cum=[0];
+  for (let i=1;i<path.length;i++) cum.push(cum[i-1]+Math.sqrt(dist2(path[i-1][0],path[i-1][1],path[i][0],path[i][1])));
+  const ys = path.map(pt=>H(pt[0],pt[1])+0.15);
+  return { path, cum, ys, len: cum[cum.length-1] };
+}
+const VAN_STOPS = [[-60,-58],[300,-58],[300,258],[-60,258],[-260,258],[-340,-58]];
+function vehicleTick(){
+  const d = CLOCK.derive();
+  const m = nowMin();
+  const wk = isWeekend(d.dow);
+  let van = SIM.vehicles.find(v=>v.kind==='van');
+  const vanActive = SIM.effRate<=200 && ((wk && (d.hour>=21.5 || d.hour<3)) || (d.dow===6 && d.hour<3));
+  if (vanActive && !van){
+    const route = vehicleRouteLoop(VAN_STOPS);
+    SIM.vehicles.push({ kind:'van', route, start:m, speed: 300 });
+  } else if (!vanActive && van){
+    SIM.vehicles = SIM.vehicles.filter(v=>v!==van);
+  }
+  let cop = SIM.vehicles.find(v=>v.kind==='cop');
+  const copActive = SIM.effRate<=200 && wk && (d.hour>=22 || d.hour<2.5);
+  if (copActive && !cop){
+    const route = vehicleRouteLoop([[-420,258],[100,258],[100,-58],[520,-58],[100,-58],[-60,258]]);
+    SIM.vehicles.push({ kind:'cop', route, start:m, speed: 420 });
+  } else if (!copActive && cop){
+    SIM.vehicles = SIM.vehicles.filter(v=>v!==cop);
+  }
+  if (SIM.effRate<=200){
+    for (const p of SIM.parties){
+      if (p.state==='SETUP' && !p.kegTruckSent){
+        p.kegTruckSent = true;
+        const from = [-140, 300];
+        const path = navRoute(from[0], from[1], p.door[0], p.door[1]);
+        const cum=[0];
+        for (let i=1;i<path.length;i++) cum.push(cum[i-1]+Math.sqrt(dist2(path[i-1][0],path[i-1][1],path[i][0],path[i][1])));
+        const ys = path.map(pt=>H(pt[0],pt[1])+0.15);
+        SIM.vehicles.push({ kind:'keg', oneway:{path,cum,ys,len:cum[cum.length-1]}, start:m, speed: 350, dwell: 25 });
+      }
+    }
+  }
+  SIM.vehicles = SIM.vehicles.filter(v=>{
+    if (!v.oneway) return true;
+    const total = v.oneway.len/v.speed*2 + v.dwell;
+    return (m - v.start) < total;
+  });
+}
+
+function simTick(){
+  const d = CLOCK.derive();
+  SIM.period = calPeriod(d.dayAbs % DAYS_PER_YEAR);
+  const ph = dayPhase(d.hour);
+  if (d.dow===3 && d.hour>=18 && SIM.lastWeekPlan !== d.dayAbs){
+    SIM.lastWeekPlan = d.dayAbs;
+    planWeekend(d.dayAbs);
+  }
+  partyTick();
+  walkerTick();
+  vehicleTick();
+  SIM.lastPhase = ph;
+  SIM.lastDay = d.dayAbs;
+}
+
+// documentary throttle: hang around when something is on, sprint when dead
+function resolveEffRate(){
+  if (CLOCK.speed !== 'documentary') return CFG.SPEEDS[CLOCK.speed] || 4;
+  const d = CLOCK.derive();
+  const per = SIM.period || calPeriod(d.dayAbs % DAYS_PER_YEAR);
+  if (per.key==='BREAK' || per.key==='SUMMER') return 1440;
+  const anyLive = SIM.parties.some(p=>p.state==='DOORS'||p.state==='PEAK');
+  const ph = dayPhase(d.hour);
+  if (anyLive) return 5;
+  if (isWeekend(d.dow) && (ph==='EVENING'||ph==='NIGHT')) return 12;
+  if (ph==='LATE' || ph==='DAWN') return 240;
+  if (ph==='CLASS' || ph==='AFTERNOON' || ph==='EVENING') return 45;
+  return 90;
+}
+
+function primeWeekend(){ // seed the current week so Friday night lights up on load
+  const d = CLOCK.derive();
+  const lastThu = d.dayAbs - ((d.dow - 3 + 7) % 7);
+  SIM.lastWeekPlan = lastThu;
+  planWeekend(lastThu);
+}
+
+// ==== §16b DYNAMIC RENDER (people, parties, vehicles) =======================
+const DYN = {
+  near:null, crowd:null, far:null, kegs:null, cups:null, cadets:null,
+  glows:[], lights:[], vans:{},
+  windowOverride: new Set(), lastOverrideKey: '',
+  m4: null, q: null, e: null, s: null, p: null, col: null,
+};
+function hash01(n){ const x = Math.sin(n*127.1+311.7)*43758.5453; return x - Math.floor(x); }
+
+function makeFigureGeo(scale){
+  const acc = new GeoAcc();
+  acc.box(0, 0.62*scale, 0, 0.42*scale, 1.0*scale, 0.26*scale, 0, 0xffffff);       // torso+legs (tinted per instance)
+  acc.box(0, 1.34*scale, 0, 0.23*scale, 0.24*scale, 0.21*scale, 0, 0xd8b090);      // head
+  return acc.build();
+}
+const SHIRTS = [0xf2ede0, 0x27406b, 0xb03a2e, 0x1f5c38, 0xc9b98a, 0x7ba3c9, 0xd8899b, 0x5c5f66];
+
+function dynInit(){
+  DYN.m4=new THREE.Matrix4(); DYN.q=new THREE.Quaternion(); DYN.e=new THREE.Euler();
+  DYN.s=new THREE.Vector3(1,1,1); DYN.p=new THREE.Vector3(); DYN.col=new THREE.Color();
+  const figGeo = makeFigureGeo(1.0);
+  const mat = new THREE.MeshLambertMaterial({ vertexColors:true });
+  DYN.near = new THREE.InstancedMesh(figGeo, mat, 96);
+  DYN.crowd = new THREE.InstancedMesh(figGeo, mat.clone(), 240);
+  const dotGeo = new THREE.BoxGeometry(0.55, 1.6, 0.45); dotGeo.translate(0,0.8,0);
+  DYN.far = new THREE.InstancedMesh(dotGeo, new THREE.MeshLambertMaterial({ color:0x4a4f5c }), 800);
+  const kegGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.62, 7); kegGeo.translate(0, 0.31, 0);
+  DYN.kegs = new THREE.InstancedMesh(kegGeo, new THREE.MeshLambertMaterial({ color:0xb8bec6 }), 64);
+  const cupGeo = new THREE.BoxGeometry(0.14, 0.16, 0.14); cupGeo.translate(0, 0.08, 0);
+  DYN.cups = new THREE.InstancedMesh(cupGeo, new THREE.MeshLambertMaterial({ vertexColors:false, color:0xffffff }), 900);
+  DYN.cadets = new THREE.InstancedMesh(makeFigureGeo(0.95), new THREE.MeshLambertMaterial({ color:0x8f9299 }), 48);
+  for (const mss of [DYN.near, DYN.crowd, DYN.far, DYN.kegs, DYN.cups, DYN.cadets]){
+    mss.count = 0; mss.frustumCulled = false; R.scene.add(mss);
+  }
+  // party glow + light pools
+  const glowTex = makeGlowTexture('rgba(255,196,110,0.9)','rgba(255,150,60,0.28)');
+  for (let i=0;i<8;i++){
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, opacity:0 }));
+    sp.scale.set(24,24,1); sp.visible=false;
+    R.scene.add(sp); DYN.glows.push(sp);
+  }
+  for (let i=0;i<4;i++){
+    const li = new THREE.PointLight(0xffb050, 0, 74, 2);
+    li.visible=false; R.scene.add(li); DYN.lights.push(li);
+  }
+  // vehicles
+  function vanMesh(bodyCol, cab){
+    const acc = new GeoAcc();
+    acc.box(0, 1.05, 0, 5.4, 1.9, 2.2, 0, bodyCol);
+    acc.box(0, 2.1, 0, 5.0, 0.25, 2.1, 0, 0x8a8f96);
+    if (cab) acc.box(2.2, 0.8, 0, 1.2, 1.2, 2.0, 0, 0x3a3f4a);
+    const m = new THREE.Mesh(acc.build(), new THREE.MeshLambertMaterial({ vertexColors:true }));
+    m.visible = false; R.scene.add(m);
+    return m;
+  }
+  DYN.vans.van = vanMesh(0xe8e4da, false);
+  DYN.vans.cop = (function(){
+    const acc = new GeoAcc();
+    acc.box(0, 0.55, 0, 4.6, 1.0, 1.9, 0, 0xe8e4da);
+    acc.box(-0.2, 1.35, 0, 2.5, 0.7, 1.7, 0, 0x23252a);
+    acc.box(-0.2, 1.85, 0, 0.9, 0.22, 1.2, 0, 0xb03040);
+    const m = new THREE.Mesh(acc.build(), new THREE.MeshLambertMaterial({ vertexColors:true }));
+    m.visible=false; R.scene.add(m); return m;
+  })();
+  DYN.vans.keg = (function(){
+    const acc = new GeoAcc();
+    acc.box(-0.8, 1.5, 0, 3.6, 2.6, 2.3, 0, 0x9a8a72);
+    acc.box(1.9, 0.95, 0, 1.6, 1.5, 2.1, 0, 0x5c1f1f);
+    const m = new THREE.Mesh(acc.build(), new THREE.MeshLambertMaterial({ vertexColors:true }));
+    m.visible=false; R.scene.add(m); return m;
+  })();
+}
+
+function vehiclePose(v, m){
+  let route = v.route || v.oneway, d;
+  if (v.route){
+    d = ((m - v.start) * v.speed) % route.len;
+  } else {
+    const out = (m - v.start) * v.speed;
+    if (out < route.len) d = out;
+    else if (out < route.len + v.dwell*v.speed) d = route.len - 0.01;
+    else d = Math.max(0, route.len*2 + v.dwell*v.speed - out);
+  }
+  let i=1;
+  while (i<route.cum.length && route.cum[i] < d) i++;
+  if (i>=route.path.length) i = route.path.length-1;
+  const t = (d - route.cum[i-1]) / Math.max(0.01, route.cum[i]-route.cum[i-1]);
+  const x = lerp(route.path[i-1][0], route.path[i][0], t);
+  const z = lerp(route.path[i-1][1], route.path[i][1], t);
+  const y = lerp(route.ys[i-1], route.ys[i], t);
+  const heading = Math.atan2(route.path[i][0]-route.path[i-1][0], route.path[i][1]-route.path[i-1][1]);
+  return [x,y,z,heading];
+}
+
+function dynUpdate(dtReal, tReal){
+  const m = nowMin();
+  const hide = SIM.effRate > 200;
+  const d = CLOCK.derive();
+  // ---- walkers (near figures + far dots)
+  let nNear=0, nFar=0;
+  if (!hide){
+    for (const w of SIM.walkers){
+      const pos = walkerPos(w, m);
+      if (!pos || pos==='done') continue;
+      const dc = dist2(pos[0], pos[2], CAM.fx, CAM.fz);
+      if (dc < 190*190 && nNear < 96){
+        const bobY = Math.abs(Math.sin(tReal*7 + w.bob))*0.06;
+        DYN.p.set(pos[0], pos[1]+bobY, pos[2]);
+        DYN.e.set(0, Math.atan2(w.path[1][0]-w.path[0][0], w.path[1][1]-w.path[0][1]), 0);
+        DYN.q.setFromEuler(DYN.e);
+        DYN.m4.compose(DYN.p, DYN.q, DYN.s);
+        DYN.near.setMatrixAt(nNear, DYN.m4);
+        DYN.col.setHex(SHIRTS[w.shirt]);
+        DYN.near.setColorAt(nNear, DYN.col);
+        nNear++;
+      } else if (nFar < 800){
+        DYN.p.set(pos[0], pos[1], pos[2]);
+        DYN.e.set(0,0,0); DYN.q.setFromEuler(DYN.e);
+        DYN.m4.compose(DYN.p, DYN.q, DYN.s);
+        DYN.far.setMatrixAt(nFar, DYN.m4);
+        nFar++;
+      }
+    }
+  }
+  DYN.near.count = nNear; DYN.far.count = nFar;
+  DYN.near.instanceMatrix.needsUpdate = true;
+  if (DYN.near.instanceColor) DYN.near.instanceColor.needsUpdate = true;
+  DYN.far.instanceMatrix.needsUpdate = true;
+  // ---- party crowds, kegs, cups, glow, lights, window override
+  let nCrowd=0, nKeg=0, nCup=0, gi=0;
+  const liveSorted = [];
+  const override = DYN.windowOverride; override.clear();
+  for (const p of SIM.parties){
+    const st = p.state;
+    if (st==='SETUP'||st==='DOORS'||st==='PEAK'||st==='WINDDOWN'){
+      if (st!=='SETUP') override.add('lot:'+p.lotId);
+      // kegs on the porch
+      if (!hide){
+        for (let k=0;k<p.kegs && nKeg<64;k++){
+          const kx = p.porch[0] + (hash01(p.t0+k*7)-0.5)*6;
+          const kz = p.porch[1] + (hash01(p.t0+k*13)-0.5)*3;
+          DYN.p.set(kx, H(kx,kz)+0.45, kz);
+          DYN.e.set(0, hash01(k+p.t0)*6.28, 0); DYN.q.setFromEuler(DYN.e);
+          DYN.m4.compose(DYN.p, DYN.q, DYN.s);
+          DYN.kegs.setMatrixAt(nKeg++, DYN.m4);
+        }
+      }
+    }
+    if ((st==='DOORS'||st==='PEAK'||st==='WINDDOWN') && !hide){
+      liveSorted.push(p);
+      // milling crowd
+      const n = Math.min(90, Math.round(p.crowd));
+      const py = H(p.porch[0], p.porch[1]);
+      for (let i=0;i<n && nCrowd<240;i++){
+        const rr = 2.5 + 11*Math.sqrt(hash01(i*3+p.t0));
+        const th = i*2.399963 + hash01(p.t0)*6.28;
+        const jx = Math.sin(tReal*0.4 + i*1.7)*0.35;
+        const jz = Math.cos(tReal*0.33 + i*2.3)*0.35;
+        const cx2 = p.porch[0] + Math.cos(th)*rr + jx;
+        const cz2 = p.porch[1] + Math.sin(th)*rr*0.72 + jz;
+        DYN.p.set(cx2, py + Math.abs(Math.sin(tReal*2.2+i))*0.05, cz2);
+        DYN.e.set(0, hash01(i+p.t0)*6.28 + Math.sin(tReal*0.2+i)*0.4, 0);
+        DYN.q.setFromEuler(DYN.e);
+        DYN.m4.compose(DYN.p, DYN.q, DYN.s);
+        DYN.crowd.setMatrixAt(nCrowd, DYN.m4);
+        DYN.col.setHex(SHIRTS[Math.floor(hash01(i*11+p.t0)*8)]);
+        DYN.crowd.setColorAt(nCrowd, DYN.col);
+        nCrowd++;
+      }
+      // glow
+      if (gi < 8){
+        const g = DYN.glows[gi++];
+        g.visible = true;
+        const pulse = 0.5 + 0.5*Math.sin(tReal*2*Math.PI*1.85 + p.t0);
+        const inten = st==='PEAK' ? 1 : st==='DOORS' ? 0.7 : 0.4;
+        g.position.set(p.porch[0], py+7.5, p.porch[1]);
+        g.scale.set(22+pulse*5*inten, 20+pulse*5*inten, 1);
+        g.material.opacity = 0.28*inten + 0.12*pulse*inten;
+      }
+    }
+    if ((st==='WINDDOWN'||st==='AFTERMATH') && !hide){
+      // the morning-after cup field
+      const n = Math.min(120, Math.round(p.peak*1.1));
+      const py = H(p.porch[0], p.porch[1]);
+      for (let i=0;i<n && nCup<900;i++){
+        const cx2 = p.porch[0] + (hash01(i*7+p.t0)-0.5)*26;
+        const cz2 = p.porch[1] + (hash01(i*17+p.t0)-0.5)*16;
+        DYN.p.set(cx2, H(cx2,cz2)+0.02, cz2);
+        DYN.e.set(0, hash01(i)*6.28, 0); DYN.q.setFromEuler(DYN.e);
+        DYN.m4.compose(DYN.p, DYN.q, DYN.s);
+        DYN.cups.setMatrixAt(nCup++, DYN.m4);
+      }
+    }
+  }
+  DYN.crowd.count = nCrowd; DYN.crowd.instanceMatrix.needsUpdate = true;
+  if (DYN.crowd.instanceColor) DYN.crowd.instanceColor.needsUpdate = true;
+  DYN.kegs.count = nKeg; DYN.kegs.instanceMatrix.needsUpdate = true;
+  DYN.cups.count = nCup; DYN.cups.instanceMatrix.needsUpdate = true;
+  for (let i=gi;i<8;i++){ DYN.glows[i].visible=false; }
+  // lights: 4 nearest live parties
+  liveSorted.sort((a,b)=> dist2(a.porch[0],a.porch[1],CAM.fx,CAM.fz) - dist2(b.porch[0],b.porch[1],CAM.fx,CAM.fz));
+  for (let i=0;i<4;i++){
+    const li = DYN.lights[i];
+    if (i < liveSorted.length && !hide){
+      const p = liveSorted[i];
+      const pulse = 0.5+0.5*Math.sin(tReal*2*Math.PI*1.85 + p.t0);
+      li.visible = true;
+      li.position.set(p.porch[0], H(p.porch[0],p.porch[1])+4.2, p.porch[1]);
+      li.intensity = (p.state==='PEAK'?1.5:0.9) + pulse*0.3;
+    } else li.visible = false;
+  }
+  // window override changed? force refresh
+  const ok = Array.from(override).sort().join('|');
+  if (ok !== DYN.lastOverrideKey){ DYN.lastOverrideKey = ok; R.lastLitBucket = -1; }
+  // ---- vehicles
+  for (const key of ['van','cop','keg']) DYN.vans[key].visible = false;
+  if (!hide){
+    for (const v of SIM.vehicles){
+      const mesh = DYN.vans[v.kind];
+      if (!mesh) continue;
+      const [x,y,z,heading] = vehiclePose(v, m);
+      mesh.visible = true;
+      mesh.position.set(x,y,z);
+      mesh.rotation.y = heading + Math.PI/2;
+    }
+  }
+  // ---- cadets: dawn formation on the parade ground
+  const cadetsOn = !hide && d.hour>=6.4 && d.hour<7.4 && (SIM.period && SIM.period.campus>0.5);
+  if (cadetsOn){
+    const t = (d.hour-6.4)/1.0;
+    const cx = 620, cz = -66, rx = 66, rz = 44;
+    const ang = t*Math.PI*2*1.2;
+    const hx = Math.cos(ang), hz = Math.sin(ang)*0.8;
+    const px = cx + hx*rx*0.5, pz = cz + hz*rz*0.5;
+    const heading = Math.atan2(-Math.sin(ang), Math.cos(ang)*0.5);
+    let n=0;
+    for (let r=0;r<6;r++) for (let c=0;c<8;c++){
+      const ox = (c-3.5)*1.4, oz = (r-2.5)*1.7;
+      const s2=Math.sin(heading), c2=Math.cos(heading);
+      const wx = px + ox*c2 + oz*s2, wz = pz - ox*s2 + oz*c2;
+      const step = Math.abs(Math.sin(tReal*8 + c*0.5))*0.08;
+      DYN.p.set(wx, H(wx,wz)+step, wz);
+      DYN.e.set(0, heading, 0); DYN.q.setFromEuler(DYN.e);
+      DYN.m4.compose(DYN.p, DYN.q, DYN.s);
+      DYN.cadets.setMatrixAt(n++, DYN.m4);
+    }
+    DYN.cadets.count = n;
+    DYN.cadets.instanceMatrix.needsUpdate = true;
+  } else DYN.cadets.count = 0;
+}
+
+// ==== §17b SPEED CONTROLS & PERIOD LABEL ====================================
+const HUD2 = { bar:null, btns:{} };
+function hud2Init(){
+  const bar = document.createElement('div');
+  bar.id = 'speedbar'; bar.className='ui';
+  bar.innerHTML = [
+    '<button data-s="pause" title="pause (space)">&#10074;&#10074;</button>',
+    '<button data-s="porch" title="porch speed — 1 sim-min/sec">&#9654;</button>',
+    '<button data-s="weekend" title="weekend speed">&#9654;&#9654;</button>',
+    '<button data-s="semester" title="semester speed">&#9654;&#9654;&#9654;</button>',
+    '<button data-s="saga" title="saga speed — a year in minutes">&#9654;&#9654;&#9654;&#9654;</button>',
+    '<button data-s="documentary" title="documentary — the camera crew decides">AUTO</button>',
+  ].join('');
+  document.body.appendChild(bar);
+  bar.querySelectorAll('button').forEach(b=>{
+    HUD2.btns[b.dataset.s] = b;
+    b.onclick = ()=>{
+      if (b.dataset.s==='pause'){ CLOCK.paused = !CLOCK.paused; }
+      else { CLOCK.speed = b.dataset.s; CLOCK.paused = false; }
+      hud2Refresh();
+    };
+  });
+  const per = document.createElement('div');
+  per.id='periodlabel'; per.className='ui';
+  document.getElementById('clockbox').appendChild(per);
+  HUD2.per = per;
+  hud2Refresh();
+}
+function hud2Refresh(){
+  for (const k in HUD2.btns){
+    const active = (k==='pause' && CLOCK.paused) || (!CLOCK.paused && k===CLOCK.speed);
+    HUD2.btns[k].classList.toggle('active', active);
+  }
+}
+function hud2Tick(){
+  if (HUD2.per && SIM.period) HUD2.per.textContent = SIM.period.label;
+}
 
 /*==APPEND==*/
 </script>
