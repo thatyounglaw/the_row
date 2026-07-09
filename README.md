@@ -11,8 +11,9 @@ a dollhouse cutaway: pong in the basement, Thursday poker, the AIM glow at midni
 chapter room blinds that drop on Monday nights (RITUAL IN PROGRESS — nice try), two guys and
 a cooler solving the world on the roof.
 
-Everything is drawn in code — wobbly ink, watercolor washes, paper grain. No libraries, no
-assets, no build, no network. One HTML file.
+Everything is drawn in code — Saturday-morning-cartoon cel style: confident dark outlines,
+flat sunny fills, one hard shadow tone, white-oval cartoon eyes. No libraries, no assets,
+no build, no network. One HTML file.
 
 ## Run it
 
