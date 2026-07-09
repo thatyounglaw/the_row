@@ -31,6 +31,17 @@
   }
   #hovercard b { font-size:13px; }
   #hovercard span { font-style:italic; opacity:.8; font-size:11px; }
+  #dialwrap {
+    position:absolute; bottom:12px; left:50%; transform:translateX(-50%); z-index:20;
+    display:flex; align-items:center; gap:10px;
+  }
+  #dial { width:96px; height:96px; cursor:pointer; filter:drop-shadow(1px 2px 0 rgba(58,47,38,.2)); }
+  #speedchips { display:flex; flex-direction:column; gap:3px; }
+  #speedchips button {
+    font-family:Georgia, serif; font-size:11px; color:#3a2f26; cursor:pointer;
+    background:rgba(250,243,226,.85); border:1px solid rgba(58,47,38,.45); border-radius:3px; padding:1px 7px;
+  }
+  #speedchips button.on { background:#3a2f26; color:#f4ead6; }
   #loading {
     position:absolute; inset:0; z-index:50; display:flex; flex-direction:column; align-items:center; justify-content:center;
     background:#f4ead6; color:#3a2f26; font-family:Georgia, serif; transition:opacity .7s;
@@ -60,7 +71,7 @@ const CFG = {
   ZMIN: 0.16, ZMAX: 3.0,
   TILE: 1024,               // bake tile width in px
   BUCKETS: [0.25, 0.5, 1, 2],
-  TILE_CACHE_MAX: 34,
+  TILE_CACHE_MAX: 64,
 };
 const PAL = {
   paper:'#f4ead6', paperDeep:'#e9d8b7',
@@ -283,7 +294,8 @@ const BANDS = [
   { id:'RIDGE',  pf:0.10, gy:470, topWu:-360, botWu:30 },
   { id:'HILL',   pf:0.34, gy:600, topWu:-300, botWu:170 },   // Colonnade on its hill
   { id:'ROW',    pf:0.85, gy:800, topWu:-380, botWu:130 },   // the hero band
-  { id:'FRINGE', pf:1.30, gy:945, topWu:-70,  botWu:460 },
+  { id:'TOWN',   pf:1.12, gy:906, topWu:-190, botWu:46 },    // downtown Lexford + sorority row
+  { id:'RIVER',  pf:1.38, gy:1006, topWu:-130, botWu:460 },  // pole houses over the water
 ];
 const BAND = {}; for (const b of BANDS) BAND[b.id]=b;
 const CAM = {
@@ -318,7 +330,7 @@ function getTile(band, bucket, ix, allowBake){
     TILES.order.push(key);
     return t;
   }
-  if (!allowBake || TILES.bakedThisFrame>=2) return null;
+  if (!allowBake || TILES.bakedThisFrame>=4) return null;
   TILES.bakedThisFrame++;
   const wuW=CFG.TILE/bucket;
   const x0=ix*wuW;
@@ -343,7 +355,8 @@ function drawBandTiles(ctx, band){
   const bucket=bucketFor(CAM.z);
   const wuW=CFG.TILE/bucket;
   const xL=unprojX(band,-80), xR=unprojX(band,view.w+80);
-  const i0=Math.floor(xL/wuW), i1=Math.floor(xR/wuW);
+  const iMax=Math.floor(4900/wuW);
+  const i0=Math.max(0,Math.floor(xL/wuW)), i1=Math.min(iMax,Math.floor(xR/wuW));
   const gy=groundY(band);
   for (let ix=i0; ix<=i1; ix++){
     let t=getTile(band,bucket,ix,true);
@@ -739,6 +752,20 @@ function buildWorld(){
     WORLD.glows.push({band:'ROW', x:xs[i], y:-96, kind:'lamp', hero:frat.hero});
   });
   WORLD.hero=WORLD.houses.find(h=>h.frat.hero);
+  // downtown & river lights
+  for (const sh of TOWN_SHOPS){
+    WORLD.glows.push({band:'TOWN', x:sh.x-14, y:-sh.h+28, kind:'hillwin'});
+    if (sh.kind==='cinema') WORLD.glows.push({band:'TOWN', x:sh.x, y:-sh.h+56, kind:'lamp'});
+    if (sh.kind==='bar') WORLD.glows.push({band:'TOWN', x:sh.x, y:-22, kind:'lamp'});
+  }
+  for (const so of V2SORS){
+    WORLD.glows.push({band:'TOWN', x:so.x-34, y:-72, kind:'window'});
+    WORLD.glows.push({band:'TOWN', x:so.x+34, y:-72, kind:'window'});
+  }
+  for (const p of POLES){
+    WORLD.glows.push({band:'RIVER', x:p.x-20, y:-75, kind:'window'});
+    WORLD.glows.push({band:'RIVER', x:p.x, y:-52, kind:'lamp'});
+  }
   // trees between and beyond houses
   const treeXs=[540, 1270, 2010, 2750, 3490, 4230, 4480];
   for (let i=0;i<treeXs.length;i++){
@@ -884,50 +911,7 @@ const WORLDDRAW = {
     for (const l of WORLD.lamps) if (l.x>x0-40 && l.x<x1+40) drawLamp(ctx, l.x, l.y, 6000+l.x);
     for (const c of WORLD.cars) if (c.x>x0-80 && c.x<x1+80) drawCar(ctx, c);
   },
-  FRINGE(ctx, x0, x1){
-    ctx.fillStyle=shade(PAL.lawn,0.9);
-    ctx.beginPath();
-    ctx.moveTo(x0-20, 460);
-    ctx.lineTo(x0-20, -20);
-    for (let x=x0-20;x<=x1+20;x+=40) ctx.lineTo(x, -26 - vnoise(x*0.005, 91)*22);
-    ctx.lineTo(x1+20, 460); ctx.closePath(); ctx.fill();
-    ctx.globalAlpha=0.1; ctx.fillStyle=shade(PAL.lawnShade,1.05);
-    for (let x=Math.floor(x0/430)*430;x<x1;x+=430){
-      ctx.beginPath(); ctx.ellipse(x+215, 110+vnoise(x,93)*90, 280, 60, 0, 0, 7); ctx.fill();
-    }
-    ctx.globalAlpha=1;
-    if (ART.detail>=1){
-      // a worn dirt path wandering the meadow
-      ctx.strokeStyle='#c9b184'; ctx.lineWidth=13; ctx.globalAlpha=0.55; ctx.lineCap='round';
-      ctx.beginPath();
-      ctx.moveTo(x0-20, 60+vnoise(x0*0.001,96)*70);
-      for (let x=x0-20;x<=x1+20;x+=80) ctx.lineTo(x, 60+vnoise(x*0.001,96)*70);
-      ctx.stroke(); ctx.globalAlpha=1;
-      // grass tufts scattered through the whole meadow
-      ctx.strokeStyle=shade(PAL.lawnShade,1.0); ctx.lineWidth=1.6;
-      for (let x=Math.floor(x0/34)*34;x<x1;x+=34){
-        for (const row of [0, 1, 2]){
-          const gy=-14 - vnoise(x*0.005, 91)*20 + row*46 + vnoise(x,95+row)*30;
-          if (vnoise(x*0.11,row*7)<0.35) continue;
-          ctx.beginPath(); ctx.moveTo(x,gy); ctx.lineTo(x-3,gy-8); ctx.moveTo(x,gy); ctx.lineTo(x+2,gy-10); ctx.stroke();
-        }
-      }
-      // wildflowers
-      for (let x=Math.floor(x0/56)*56;x<x1;x+=56){
-        if (vnoise(x*0.07,17)<0.62) continue;
-        const fy=10+vnoise(x,18)*110;
-        ctx.fillStyle=vnoise(x,19)<0.5?'#e8d8a0':'#d8a8b0';
-        ctx.beginPath(); ctx.arc(x+vnoise(x,20)*30, fy, 2.2, 0, 7); ctx.fill();
-      }
-      for (let x=Math.floor(x0/520)*520;x<x1;x+=520){
-        const px=x+vnoise(x,97)*160, py=-8-vnoise(px,98)*16;
-        ctx.strokeStyle=PAL.trunk; ctx.lineWidth=4.5;
-        ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px,py-34); ctx.stroke();
-        ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.2;
-        wob(ctx,[[px-2,py],[px-2,py-34]],9000+x,{w:1.1,alpha:0.6});
-      }
-    }
-  },
+
 };
 
 // ==== §12 SKY & ATMOSPHERE ==================================================
@@ -1032,9 +1016,10 @@ function drawGlows(ctx, hour, rt){
     const sx=projX(band, g.x);
     if (sx<-80||sx>view.w+80) continue;
     const sy=groundY(band)+g.y*CAM.z;
-    const lit = g.kind==='lamp' ? 1 : (hash01(g.x, g.y, Math.floor(hour<12?hour+24:hour))<0.72 ? 1 : 0);
+    const pty = (g.band==='ROW' && g.kind==='window' && typeof houseParty==='function') ? houseParty(g.x) : null;
+    const lit = pty ? 1 : (g.kind==='lamp' ? 1 : (hash01(g.x, g.y, Math.floor(hour<12?hour+24:hour))<0.72 ? 1 : 0));
     if (!lit) continue;
-    const flick = 0.92+vnoise(rt*0.8, g.x*0.13)*0.16;
+    const flick = (0.92+vnoise(rt*0.8, g.x*0.13)*0.16) * (pty ? 1.15+0.18*Math.sin(rt*11+g.x) : 1);
     const r=(g.kind==='lamp'?46:g.kind==='hillwin'?15:34)*CAM.z*flick;
     ctx.globalAlpha=ga*(g.kind==='lamp'?0.75:g.kind==='hillwin'?0.3:0.6)*(g.hero?clamp(1-HERO.openT*1.1,0,1):1);
     ctx.drawImage(GLOWSPR, sx-r, sy-r, r*2, r*2);
@@ -1340,6 +1325,7 @@ function frame(ts){
   drawSky(ctx, sk, hour, rt);
   drawBirds(ctx, rt);
   stageHero();
+  stageOthers();
   HIT.length=0;
   // hero house focus/open amount
   {
@@ -1368,6 +1354,8 @@ function frame(ts){
       artForBucket(1);
       ctx.setTransform(view.dpr,0,0,view.dpr,0,0);
       drawSmoke(ctx, rt);
+      drawOthers(ctx, rt);
+      drawParties(ctx, rt);
       drawFigures(ctx, rt);
       drawDog(ctx);
     }
@@ -1412,6 +1400,7 @@ function frame(ts){
   vg.addColorStop(0,'rgba(58,47,38,0)');
   vg.addColorStop(1,'rgba(58,47,38,0.10)');
   ctx.fillStyle=vg; ctx.fillRect(0,0,view.w,view.h);
+  dialDraw();
   updateHUD();
   DBG.frames++;
 }
@@ -1431,6 +1420,7 @@ function boot(){
   HERO.h=WORLD.hero;
   HERO.rooms=heroRooms(HERO.h.x);
   hoverInit();
+  dialInit();
   for (let i=0;i<9;i++) FIGS.push(makeWalker(i+1));
   // Friday, September 12, golden hour
   CLOCK.t=11*TICKS_PER_DAY+Math.floor(18.7*4);
@@ -2304,6 +2294,384 @@ function drawHeroActors(ctx, rt, openT){
       }
     }
   }
+}
+
+// ==== §11b DOWNTOWN & THE RIVER ============================================
+const TOWN_SHOPS=[
+  { x:700,  w:150, h:118, name:'THE PALM ROOM', kind:'bar',    col:'#9a5a42' },
+  { x:860,  w:120, h:104, name:'ZA',            kind:'pizza',  col:'#a86a3a' },
+  { x:990,  w:130, h:110, name:'SWEET THINGS',  kind:'icecream',col:'#b08a8a' },
+  { x:1130, w:150, h:126, name:'STATE',         kind:'cinema', col:'#8a7a68' },
+  { x:1290, w:120, h:100, name:'GENERAL STORE', kind:'store',  col:'#7a6a52' },
+  { x:1420, w:110, h:108, name:'ABC',           kind:'abc',    col:'#6a7a6a' },
+  { x:1540, w:130, h:104, name:'LEX LAUNDRY',   kind:'laundry',col:'#8a8a9a' },
+  { x:1680, w:120, h:112, name:'RECORDS',       kind:'records',col:'#7a5a6a' },
+];
+const V2SORS=[
+  { letters:'ΑΦΛ', x:2900, col:'#d8a8b8' },
+  { letters:'ΔΣ',  x:3260, col:'#a8c0d8' },
+  { letters:'ΓΗ',  x:3620, col:'#b8d0a8' },
+  { letters:'ΠΖ',  x:3980, col:'#d8c8a0' },
+];
+const POLES=[ {x:1150}, {x:2350}, {x:3450} ];
+
+function drawShop(ctx, sh){
+  const x=sh.x, w=sh.w, h=sh.h, id=9000+x;
+  washRect(ctx, x-w/2, -h, w, h, sh.col, id);
+  wobRect(ctx, x-w/2, -h, w, h, id, {w:1.7});
+  // parapet
+  ctx.fillStyle=shade(sh.col,0.82);
+  ctx.fillRect(x-w/2-3, -h-7, w+6, 7);
+  wob(ctx,[[x-w/2-3,-h-7],[x+w/2+3,-h-7]],id+1,{w:1.4});
+  // display window + door
+  ctx.fillStyle='#c8d4da';
+  ctx.fillRect(x-w/2+8, -34, w*0.5, 26);
+  wobRect(ctx, x-w/2+8, -34, w*0.5, 26, id+2, {w:1.2});
+  ctx.fillStyle='#54432f';
+  ctx.fillRect(x+w/2-24, -34, 16, 34);
+  wobRect(ctx, x+w/2-24, -34, 16, 34, id+3, {w:1.2});
+  // upstairs windows
+  for (let i=0;i<Math.floor(w/44);i++){
+    const wx=x-w/2+24+i*44;
+    ctx.fillStyle='#5a6a7a';
+    ctx.fillRect(wx-8,-h+18,16,20);
+    wobRect(ctx, wx-8,-h+18,16,20, id+4+i, {w:1.1});
+  }
+  // awning or marquee
+  if (sh.kind==='cinema'){
+    ctx.fillStyle='#e8e0cc';
+    ctx.fillRect(x-w/2+4, -h+46, w-8, 22);
+    wobRect(ctx, x-w/2+4, -h+46, w-8, 22, id+8, {w:1.4});
+    jitterText(ctx, sh.name, x, -h+61, 13, id+9, {align:'center', style:'bold'});
+    ctx.fillStyle='#c9a227';
+    for (let i=0;i<9;i++){ ctx.beginPath(); ctx.arc(x-w/2+10+i*(w-20)/8, -h+43, 1.6, 0, 7); ctx.fill(); }
+  } else {
+    const aw=['#7a2c22','#27406b','#1f5c38'][x%3];
+    ctx.fillStyle=aw;
+    ctx.beginPath();
+    ctx.moveTo(x-w/2+4,-40); ctx.lineTo(x+w/2-4,-40); ctx.lineTo(x+w/2-10,-30); ctx.lineTo(x-w/2+10,-30); ctx.closePath(); ctx.fill();
+    wob(ctx,[[x-w/2+4,-40],[x+w/2-4,-40]],id+8,{w:1.2});
+    jitterText(ctx, sh.name, x, -h+30, 8.5, id+9, {align:'center', col:'#efe7d2'});
+  }
+}
+function drawSorHouse(ctx, so){
+  const x=so.x, id=9500+x, W=200, H=120;
+  washRect(ctx, x-W/2, -H, W, H, '#f0e8d8', id);
+  wobRect(ctx, x-W/2, -H, W, H, id, {w:1.7});
+  // trim band + shutters in the chapter color
+  ctx.fillStyle=so.col;
+  ctx.fillRect(x-W/2, -H-4, W, 5);
+  washPoly(ctx, [[x-W/2-12,-H],[x+W/2+12,-H],[x,-H-44]], '#e8e0d0', id+1);
+  wob(ctx, [[x-W/2-12,-H],[x,-H-44],[x+W/2+12,-H],[x-W/2-12,-H]], id+1, {w:1.6});
+  for (let i=0;i<4;i++){
+    const wx=x-W/2+34+i*(W-68)/3;
+    ctx.fillStyle='#5a6a7a'; ctx.fillRect(wx-11,-86,22,28);
+    ctx.fillStyle=so.col; ctx.fillRect(wx-16,-86,4,28); ctx.fillRect(wx+12,-86,4,28);
+    wobRect(ctx, wx-11,-86,22,28, id+3+i, {w:1.1});
+  }
+  // porch
+  ctx.fillStyle='#e8e0d0';
+  ctx.fillRect(x-W/2-4, -18, W+8, 7);
+  for (let i=0;i<4;i++){
+    const cx=x-W/2+14+i*(W-28)/3;
+    ctx.fillStyle='#f0ece0'; ctx.fillRect(cx-3.4,-52,6.8,36);
+  }
+  ctx.fillStyle='#e8e0d0'; ctx.fillRect(x-W/2-6,-56,W+12,7);
+  ctx.fillStyle='#54432f'; ctx.fillRect(x-11,-46,22,28);
+  jitterText(ctx, so.letters, x, -92, 19, id+9, {align:'center', col:shade(so.col,0.62), style:'bold'});
+  // flower beds — they keep it nicer than the boys do
+  for (const off of [-W/2+16, W/2-16]){
+    ctx.fillStyle='#4d6f3f';
+    ctx.beginPath(); ctx.ellipse(x+off, -10, 14, 6, 0, 0, 7); ctx.fill();
+    for (let i=0;i<4;i++){
+      ctx.fillStyle=['#d86a8a','#e8c04a'][i%2];
+      ctx.beginPath(); ctx.arc(x+off-9+i*6, -14, 1.8, 0, 7); ctx.fill();
+    }
+  }
+}
+function drawPoleHouse(ctx, p){
+  const x=p.x, id=9800+x;
+  // stilts
+  ctx.strokeStyle='#6a5a44'; ctx.lineWidth=4;
+  for (const off of [-52,-18,18,52]){
+    ctx.beginPath(); ctx.moveTo(x+off, 26); ctx.lineTo(x+off, -34); ctx.stroke();
+  }
+  // deck + rails + cabin
+  ctx.fillStyle='#9a8a72'; ctx.fillRect(x-66,-40,132,7);
+  wob(ctx,[[x-66,-40],[x+66,-40]],id,{w:1.5});
+  ctx.strokeStyle='#8a7862'; ctx.lineWidth=1.6;
+  for (let i=0;i<=8;i++){ ctx.beginPath(); ctx.moveTo(x-64+i*16,-40); ctx.lineTo(x-64+i*16,-52); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(x-64,-52); ctx.lineTo(x+64,-52); ctx.stroke();
+  washRect(ctx, x-46, -96, 92, 56, '#a08a68', id+1);
+  wobRect(ctx, x-46, -96, 92, 56, id+1, {w:1.6});
+  washPoly(ctx, [[x-52,-96],[x+52,-96],[x+44,-116],[x-44,-116]], PAL.roofMetal||'#7e8890', id+2);
+  ctx.fillStyle='#5a6a7a'; ctx.fillRect(x-30,-84,20,18);
+  wobRect(ctx, x-30,-84,20,18, id+3,{w:1.1});
+  ctx.fillStyle='#54432f'; ctx.fillRect(x+8,-82,16,42);
+  // stairs down the bank
+  ctx.strokeStyle='#9a8a72'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(x+64,-40); ctx.lineTo(x+96,10); ctx.stroke();
+  for (let i=1;i<6;i++){ ctx.strokeStyle='#8a7862'; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.moveTo(x+64+i*5.5,-40+i*8.5); ctx.lineTo(x+72+i*5.5,-38+i*8.5); ctx.stroke(); }
+  // cooler on the deck, obviously
+  ctx.save(); ctx.translate(x-30,-40); PROPS.cooler(ctx,0); ctx.restore();
+}
+
+// ==== §11c NEW BAND PAINTERS ================================================
+WORLDDRAW.TOWN=function(ctx, x0, x1){
+  // grass base
+  ctx.fillStyle=shade(PAL.lawn,0.94);
+  ctx.fillRect(x0-20,-150,x1-x0+40,150+40);
+  // sidewalk + street
+  ctx.fillStyle=PAL.sidewalk; ctx.fillRect(x0-20, 2, x1-x0+40, 10);
+  ctx.fillStyle=shade(PAL.asphalt,0.94); ctx.fillRect(x0-20, 12, x1-x0+40, 28);
+  for (const sh of TOWN_SHOPS) if (sh.x+sh.w>x0-40 && sh.x-sh.w<x1+40) drawShop(ctx, sh);
+  for (const so of V2SORS) if (so.x+140>x0-40 && so.x-140<x1+40) drawSorHouse(ctx, so);
+  // street trees between sororities
+  for (let x=2700;x<4200;x+=180){
+    if (x<x0-160||x>x1+160) continue;
+    if (Math.abs(((x-2900)%360+360)%360)<80) continue;
+    ctx.save(); ctx.translate(0,0);
+    drawTree(ctx, {x, s:0.55+vnoise(x,7)*0.2, lean:(vnoise(x,8)-0.5), id:9600+x});
+    ctx.restore();
+  }
+  // lamps
+  for (let x=Math.floor(x0/380)*380;x<x1;x+=380){
+    if (x<620||x>4100) continue;
+    drawLamp(ctx, x+7, 2, 9700+x);
+  }
+};
+WORLDDRAW.RIVER=function(ctx, x0, x1){
+  // bank grass
+  ctx.fillStyle=shade(PAL.lawn,0.88);
+  ctx.fillRect(x0-20,-40,x1-x0+40,68);
+  // the river fills the foreground
+  ctx.fillStyle=PAL.river;
+  ctx.fillRect(x0-20, 26, x1-x0+40, 434);
+  ctx.fillStyle=PAL.riverDeep;
+  ctx.fillRect(x0-20, 90, x1-x0+40, 370);
+  // glints
+  ctx.strokeStyle='rgba(220,235,238,0.5)'; ctx.lineWidth=1.6;
+  for (let x=Math.floor(x0/90)*90;x<x1;x+=90){
+    const gy2=34+vnoise(x*0.01,44)*80;
+    ctx.beginPath(); ctx.moveTo(x, gy2); ctx.lineTo(x+26+vnoise(x,45)*20, gy2); ctx.stroke();
+  }
+  // bank edge
+  wob(ctx, [[x0-20,26],[x1+20,26]], 951, {w:1.6, alpha:0.6});
+  for (const p of POLES) if (p.x+120>x0-40 && p.x-120<x1+40) drawPoleHouse(ctx, p);
+  // a canoe, beached, provenance unknown
+  ctx.fillStyle='#7a4a3a';
+  ctx.beginPath(); ctx.ellipse(1850, 20, 34, 6, 0.05, Math.PI, 0); ctx.fill();
+  wob(ctx, [[1816,20],[1884,20]], 952, {w:1.3});
+  // dock at the middle pole house
+  ctx.fillStyle='#9a8a72'; ctx.fillRect(2390, 30, 90, 6);
+  ctx.strokeStyle='#6a5a44'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(2410,36); ctx.lineTo(2410,58); ctx.moveTo(2460,36); ctx.lineTo(2460,58); ctx.stroke();
+};
+
+// ==== §14b GENERIC PORCH LIFE (every house breathes) ========================
+const GENERIC_PORCH=[
+  { poses:['couch','couch'], dx:[104,128], lines:['The porch is undefeated.','You can see everything from here. Everything.','(supervising the street)'] },
+  { poses:['talk','talk'], dx:[-96,-70], lines:['There he is!','What’s goin’ on, big guy.','Tell him about the fish. Tell him.'] },
+  { poses:['drink','couch'], dx:[96,124], lines:['To Tuesday. A quiet giant.','This railing has held better men than us.'] },
+  { poses:['guitar','sit'], dx:[-100,-72], lines:['(the opening chords of something everyone knows)','One more verse. There’s always one more verse.'] },
+];
+const OTHERSTAGE={ last:-1, staged:[] };
+function stageOthers(){
+  const d=CLOCK.derive();
+  const block=heroBlock()+d.dayAbs*6;
+  if (block===OTHERSTAGE.last) return;
+  OTHERSTAGE.last=block;
+  OTHERSTAGE.staged=[];
+  for (const h of WORLD.houses){
+    if (h.frat.hero) continue;
+    const hr=d.hour;
+    const active=(hr>=12 && hr<24) && hash01(d.dayAbs, block, h.x)<0.62;
+    if (!active) continue;
+    const g=GENERIC_PORCH[Math.floor(hash01(d.dayAbs, block, h.x, 2)*GENERIC_PORCH.length)];
+    const roster=h.roster.map(pid=>PEOPLE[pid]);
+    const cast=[];
+    for (let i=0;i<g.poses.length;i++){
+      const p=roster[Math.floor(hash01(d.dayAbs, block, h.x, 3+i)*roster.length)];
+      cast.push(p.pid);
+    }
+    OTHERSTAGE.staged.push({h, g, cast, t0:performance.now()/1000, fired:{}});
+  }
+}
+function drawOthers(ctx, rt){
+  const band=BAND.ROW;
+  for (const st of OTHERSTAGE.staged){
+    for (let i=0;i<st.cast.length;i++){
+      const p=PEOPLE[st.cast[i]];
+      const ax=st.h.x+st.g.dx[i];
+      const sx=projX(band, ax);
+      if (sx<-60||sx>view.w+60) continue;
+      const sy=groundY(band)+(-26)*CAM.z;
+      ctx.save();
+      ctx.translate(sx,sy);
+      ctx.scale(CAM.z*(st.g.dx[i]<0?1:-1), CAM.z);
+      const f=(rt*0.5+i*0.4+hash01(p.pid))%1;
+      (POSES[st.g.poses[i]]||POSES.stand)(ctx,p,f);
+      ctx.restore();
+      HIT.push({pid:p.pid, sx, sy:sy-46*CAM.z});
+    }
+    // occasional line
+    const loopLen=44;
+    const el=(rt-st.t0)%loopLen;
+    const kk=Math.floor((rt-st.t0)/loopLen);
+    if (el>=8 && !st.fired[kk] && CAM.z>0.5){
+      st.fired[kk]=1;
+      if (hash01(st.h.x, kk)<0.5){
+        const txt=st.g.lines[Math.floor(hash01(st.h.x, kk, 2)*st.g.lines.length)];
+        sayAt('ROW', st.h.x+st.g.dx[0], -26-58, txt, {dur:3.8, think:txt.startsWith('(')});
+      }
+    }
+  }
+}
+
+// ==== §16 WEEKEND PARTIES (sim-lite, deterministic) =========================
+function partiesTonight(){
+  const d=CLOCK.derive();
+  // a party "tonight" belongs to the evening's dayAbs (late hours borrow yesterday)
+  const nightDay = d.hour<6 ? d.dayAbs-1 : d.dayAbs;
+  const dow=nightDay%7;
+  if (dow!==4 && dow!==5) return [];
+  const out=[];
+  for (const h of WORLD.houses){
+    const isHero=h.frat.hero;
+    const p= isHero ? (dow===5?0.85:0.35) : 0.38;
+    if (hash01(nightDay, h.x, 77)<p) out.push({h, hero:isHero, big:isHero&&dow===5});
+  }
+  return out;
+}
+const PARTY_LINES=['REVOLUTION!','One more song!','SAME TEAM!','HEADS!','Rack ’em!','To the boys!'];
+const RAGER_LINES=['ALIVE! (everyone, at once)','The solo! THE SOLO!','Evenflow does not take requests. Evenflow provides.','(four hundred high fives, simultaneously)'];
+function partyHour(){
+  const hr=CLOCK.derive().hour;
+  return (hr>=20.5||hr<2.5);
+}
+let _partyBubbleT=0;
+function drawParties(ctx, rt){
+  if (!partyHour()) return;
+  const tonight=partiesTonight();
+  if (!tonight.length) return;
+  const band=BAND.ROW;
+  for (const pt of tonight){
+    const hx=pt.h.x;
+    const sx=projX(band,hx);
+    if (sx<-400||sx>view.w+400) continue;
+    const n=pt.big?14:8;
+    for (let i=0;i<n;i++){
+      const off=(hash01(hx,i,1)-0.5)*(pt.big?300:220);
+      const ax=hx+off;
+      const isPorch=Math.abs(off)<130;
+      const fy=isPorch?-26:0;
+      const psx=projX(band,ax);
+      if (psx<-60||psx>view.w+60) continue;
+      const psy=groundY(band)+fy*CAM.z;
+      // synthetic guests (not roster — the whole campus shows up)
+      const guest={ pid:-1, female:hash01(hx,i,2)<0.4, polo:PAL.polos[Math.floor(hash01(hx,i,3)*8)],
+        skin:SKINS[Math.floor(hash01(hx,i,4)*6)], hair:HAIRS[Math.floor(hash01(hx,i,5)*7)],
+        hat:hash01(hx,i,6)<0.2, kind:'GUEST' };
+      const poseName= pt.big && isPorch ? 'highfive' : ['drink','talk','dance','stand'][Math.floor(hash01(hx,i,7)*4)];
+      ctx.save();
+      ctx.translate(psx,psy);
+      ctx.scale(CAM.z*(hash01(hx,i,8)<0.5?-1:1), CAM.z);
+      (POSES[poseName]||POSES.stand)(ctx, guest, (rt*0.5+i*0.29)%1);
+      ctx.restore();
+    }
+    // music notes drifting from the house
+    ctx.fillStyle='rgba(58,47,38,0.7)';
+    ctx.font='italic '+Math.round(15*CAM.z+6)+'px Georgia';
+    for (let i=0;i<3;i++){
+      const t=((rt*0.3)+i*0.33+hash01(hx,i)) % 1;
+      const nx=sx+Math.sin((t*5+i)*2)*30*CAM.z + 60*CAM.z;
+      const ny=groundY(band)+(-170-t*90)*CAM.z;
+      ctx.globalAlpha=0.75*(1-t);
+      ctx.fillText(i%2?'♪':'♫', nx, ny);
+    }
+    ctx.globalAlpha=1;
+    // party lines
+    if (rt-_partyBubbleT>11 && CAM.z>0.45 && Math.abs(sx-view.w/2)<view.w*0.5){
+      _partyBubbleT=rt;
+      const bank=pt.big?RAGER_LINES:PARTY_LINES;
+      sayAt('ROW', hx+(hash01(Math.floor(rt),hx)-0.5)*160, pt.big?-96:-26-58,
+        bank[Math.floor(hash01(Math.floor(rt),hx,2)*bank.length)], {dur:3.6});
+    }
+  }
+}
+// party glow override helper (used by drawGlows)
+function houseParty(x){
+  if (!partyHour()) return null;
+  for (const pt of partiesTonight()) if (Math.abs(pt.h.x-x)<170) return pt;
+  return null;
+}
+
+// ==== §18b TIME DIAL & SPEED ================================================
+const DIAL={ el:null, cv:null, drag:false };
+function dialInit(){
+  const wrap=document.createElement('div');
+  wrap.id='dialwrap'; wrap.className='hud';
+  wrap.innerHTML='<canvas id="dial" width="natural" height="natural"></canvas><div id="speedchips">'+
+    '<button data-s="0">⏸</button><button data-s="1" class="on">1×</button>'+
+    '<button data-s="4">4×</button><button data-s="60">60×</button></div>';
+  document.body.appendChild(wrap);
+  DIAL.cv=document.getElementById('dial');
+  DIAL.cv.width=natural(); DIAL.cv.height=natural();
+  function natural(){ return 96*Math.min(window.devicePixelRatio||1,2); }
+  wrap.style.pointerEvents='auto';
+  wrap.querySelectorAll('#speedchips button').forEach(b=>{
+    b.onclick=()=>{
+      CLOCK.speed=parseFloat(b.dataset.s);
+      wrap.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+    };
+  });
+  const pick=(e)=>{
+    const r=DIAL.cv.getBoundingClientRect();
+    const dx=e.clientX-(r.left+r.width/2), dy=e.clientY-(r.top+r.height/2);
+    let ang=Math.atan2(dy,dx)+Math.PI/2;
+    if (ang<0) ang+=Math.PI*2;
+    const hr=ang/(Math.PI*2)*24;
+    const d=CLOCK.derive();
+    CLOCK.t=d.dayAbs*TICKS_PER_DAY+Math.round(hr*4);
+    CLOCK.frac=0;
+    HERO.lastBlock=-1; OTHERSTAGE.last=-1;
+  };
+  DIAL.cv.addEventListener('pointerdown',e=>{ DIAL.drag=true; pick(e); DIAL.cv.setPointerCapture(e.pointerId); });
+  DIAL.cv.addEventListener('pointermove',e=>{ if (DIAL.drag) pick(e); });
+  DIAL.cv.addEventListener('pointerup',()=>DIAL.drag=false);
+}
+function dialDraw(){
+  const cv=DIAL.cv; if (!cv) return;
+  const g=cv.getContext('2d');
+  const S=cv.width, c=S/2, R=S*0.42;
+  g.setTransform(1,0,0,1,0,0);
+  g.clearRect(0,0,S,S);
+  g.beginPath(); g.arc(c,c,R,0,7);
+  g.fillStyle='rgba(250,243,226,0.92)'; g.fill();
+  g.lineWidth=S*0.02; g.strokeStyle='#3a2f26'; g.stroke();
+  // day/night arc shading
+  g.beginPath(); g.arc(c,c,R*0.98, Math.PI*0.75, Math.PI*2.25);
+  g.strokeStyle='rgba(70,80,122,0.25)'; g.lineWidth=S*0.06; g.stroke();
+  // ticks
+  g.strokeStyle='#6b5a49'; g.lineWidth=1;
+  for (let i=0;i<24;i++){
+    const a=i/24*Math.PI*2-Math.PI/2;
+    const l=i%6===0?0.86:0.93;
+    g.beginPath();
+    g.moveTo(c+Math.cos(a)*R*l, c+Math.sin(a)*R*l);
+    g.lineTo(c+Math.cos(a)*R*0.97, c+Math.sin(a)*R*0.97);
+    g.stroke();
+  }
+  // needle
+  const hr=CLOCK.hourFloat()%24;
+  const a=hr/24*Math.PI*2-Math.PI/2;
+  g.strokeStyle='#8a2a1a'; g.lineWidth=S*0.025; g.lineCap='round';
+  g.beginPath(); g.moveTo(c-Math.cos(a)*R*0.1, c-Math.sin(a)*R*0.1);
+  g.lineTo(c+Math.cos(a)*R*0.78, c+Math.sin(a)*R*0.78); g.stroke();
+  g.fillStyle='#3a2f26';
+  g.beginPath(); g.arc(c,c,S*0.03,0,7); g.fill();
 }
 
 /*==APPEND==*/
