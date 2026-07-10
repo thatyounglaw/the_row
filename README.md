@@ -37,12 +37,16 @@ Things worth finding:
 
 ## Status
 
-v2 is mid-build (phases P1–P3 of 5 shipped): the art style, the hero-house dollhouse with
-~30 authored vignettes, the town/river bands, weekend parties, and the time dial are in.
-Coming in P4–P5: the full year calendar (Rush, Fancy Dress with yearly themes, Mock Con
-elephants, Beach Week silence), all eight houses cut away, sorority interiors, the secret
-society and other running gags, the Acts drawer, ~190 vignettes, and synthesized ambient
-sound (crickets, church bells, and the muffled thump that gets louder as you approach a
-party). v1 — a full 3D ambient-sim take on the same world — lives in git history.
+v2 is mid-build (phases P1–P4 of 5 shipped): the cel-cartoon art style, the hero-house
+dollhouse with ~50 authored vignettes, the town/river bands, weekend parties, the time
+dial — and now the cast: running gags (the hooded figure on Thursday nights, the ladder
+guy, the pizza oracle, the migrating couch, the flamingo), the **acts** drawer (strikes,
+forgiveness, rain, Cupid, prank wars, alumni money, marching cadets), Fancy Dress with
+yearly themes, the Mock Convention parade with rented elephants every fourth winter,
+sorority porch life, town walkers, river tubers, the Traveller shuttle, and the
+click-the-frame composite viewer. Coming in P5: synthesized ambient sound (crickets,
+church bells, and the muffled thump that gets louder as you approach a party), more
+vignettes, and polish. v1 — a full 3D ambient-sim take on the same world — lives in git
+history.
 
 The design doc heritage is in [`The Row - Game Design Document.md`](./The%20Row%20-%20Game%20Design%20Document.md).

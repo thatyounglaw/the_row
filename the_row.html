@@ -42,6 +42,39 @@
     background:rgba(250,243,226,.85); border:1px solid rgba(58,47,38,.45); border-radius:3px; padding:1px 7px;
   }
   #speedchips button.on { background:#3a2f26; color:#f4ead6; }
+  #nudge {
+    position:absolute; bottom:14px; left:50%; transform:translateX(-140px); z-index:18;
+    max-width:340px; display:none; pointer-events:auto; cursor:pointer;
+    background:rgba(250,243,226,.94); border:1px solid rgba(58,47,38,.55); border-radius:3px;
+    padding:5px 10px; font-family:Georgia, serif; font-style:italic; font-size:12px; color:#3a2f26;
+    box-shadow:2px 3px 0 rgba(58,47,38,.15); transform:translateX(90px) rotate(-0.5deg);
+  }
+  #nudge:hover { background:#fdf6e4; }
+  #actsbtn {
+    position:absolute; bottom:44px; right:20px; z-index:20; pointer-events:auto; cursor:pointer;
+    font-family:Georgia, serif; font-style:italic; font-size:12px; color:#3a2f26;
+    background:rgba(250,243,226,.9); border:1px solid rgba(58,47,38,.5); border-radius:3px; padding:3px 12px;
+  }
+  #actsbtn:hover { background:rgba(58,47,38,.12); }
+  #actsdrawer {
+    position:absolute; bottom:76px; right:20px; z-index:21; display:none; flex-direction:column; gap:4px;
+    background:rgba(250,243,226,.97); border:1px solid #3a2f26; border-radius:4px; padding:10px;
+    box-shadow:3px 4px 0 rgba(58,47,38,.2); pointer-events:auto;
+  }
+  #actsdrawer .acttitle { font-family:Georgia, serif; font-size:11px; letter-spacing:2px; opacity:.7; margin-bottom:3px; }
+  #actsdrawer button {
+    font-family:Georgia, serif; font-size:12px; text-align:left; color:#3a2f26; cursor:pointer;
+    background:none; border:1px solid rgba(58,47,38,.35); border-radius:3px; padding:3px 10px;
+  }
+  #actsdrawer button:hover { background:rgba(58,47,38,.1); }
+  #compwrap {
+    position:absolute; inset:0; z-index:40; display:none; align-items:center; justify-content:center;
+    background:rgba(42,38,32,.55); pointer-events:auto;
+  }
+  #compframe {
+    background:#f4ead6; border:10px solid #4a3220; border-radius:2px; box-shadow:0 14px 50px rgba(0,0,0,.5);
+    padding:14px 18px; cursor:pointer;
+  }
   #loading {
     position:absolute; inset:0; z-index:50; display:flex; flex-direction:column; align-items:center; justify-content:center;
     background:#f4ead6; color:#3a2f26; font-family:Georgia, serif; transition:opacity .7s;
@@ -556,7 +589,7 @@ function drawYardProp(ctx, h){
       ctx.beginPath(); ctx.moveTo(sx,-2); ctx.lineTo(sx+3,-64); ctx.stroke();
       ctx.fillStyle='#e8e2d2'; ctx.fillRect(sx-13,-88,32,24);
       wobRect(ctx,sx-13,-88,32,24,id+7,{w:1.2});
-      if (ART.detail>=2) jitterText(ctx,'RESERVED',sx+3,-72,7,id+8,{align:'center'});
+      if (ART.detail>=2) jitterText(ctx,'RESERVED',sx+3,-72,5.4,id+8,{align:'center'});
       break;
     }
     case 'TK': { // cooler + football on the lawn
@@ -1253,6 +1286,7 @@ function updateHUD(){
   document.getElementById('d1').textContent=DOW[d.dow]+', '+MONTHS[d.month]+' '+d.dayInMonth;
   const yr=1999+((SEEDH>>>3)%5)+d.year;
   document.getElementById('d2').textContent=h12+':'+mm+' '+(d.hh>=12?'PM':'AM')+' · '+(d.month<4?'fall':'spring')+' semester · '+yr;
+  updateNudge();
 }
 
 // ==== §20 BOOT & LOOP ======================================================
@@ -1279,6 +1313,7 @@ function frame(ts){
   CAM.x+=(CAM.tx-CAM.x)*k; CAM.z+=(CAM.tz-CAM.z)*k;
   CAM.yStage=camYStage();
   figTick(dt, rt);
+  specialsTick(dt, rt);
   // ---- draw
   const ctx=cx2d;
   ctx.setTransform(view.dpr,0,0,view.dpr,0,0);
@@ -1298,6 +1333,9 @@ function frame(ts){
   }
   for (const b of BANDS){
     drawBandTiles(ctx, b);
+    if (b.id==='HILL') drawHillLife(ctx, rt);
+    if (b.id==='TOWN') drawTownLife(ctx, rt);
+    if (b.id==='RIVER') drawRiverLife(ctx, rt);
     if (b.id==='ROW'){
       const openT=HERO.openT;
       // world-space dynamic drawing for the hero house
@@ -1320,6 +1358,8 @@ function frame(ts){
       drawParties(ctx, rt);
       drawFigures(ctx, rt);
       drawDog(ctx);
+      drawGags(ctx, rt);
+      drawSpecials(ctx, rt);
     }
   }
   drawWorldBubbles(ctx);
@@ -1351,6 +1391,7 @@ function frame(ts){
   }
   drawGlows(ctx, hour, rt);
   drawBubbles(ctx);
+  drawRain(ctx, rt);
   // soft vignette
   const vg=ctx.createRadialGradient(view.w/2,view.h/2,view.h*0.42,view.w/2,view.h/2,view.h*0.95);
   vg.addColorStop(0,'rgba(58,47,38,0)');
@@ -1377,6 +1418,11 @@ function boot(){
   HERO.rooms=heroRooms(HERO.h.x);
   hoverInit();
   dialInit();
+  buildSors();
+  buildGags();
+  actsInit();
+  nudgeInit();
+  compInit();
   for (let i=0;i<9;i++) FIGS.push(makeWalker(i+1));
   // Friday, September 12, golden hour
   CLOCK.t=11*TICKS_PER_DAY+Math.floor(18.7*4);
@@ -1744,7 +1790,7 @@ function hoverInit(){
     if (best){
       const p=PEOPLE[best.pid];
       el.innerHTML='<b>'+p.full+(p.kind==='COOK'?'':' '+classTag(p))+'</b><br><span>'+
-        (p.kind==='COOK' ? 'runs this kitchen' : (WORLD.houses.find(x=>x.frat.key===p.orgKey)||{frat:{letters:''}}).frat.letters)+
+        (p.kind==='COOK' ? 'runs this kitchen' : (WORLD.houses.find(x=>x.frat.key===p.orgKey)||{frat:{letters:p.sorLetters||p.orgLabel||''}}).frat.letters)+
         (p.tag||p.kind==='COOK' ? ' · known for: '+knownFor(p) : '')+'</span>';
       el.style.display='block';
       el.style.left=Math.min(view.w-240, e.clientX+14)+'px';
@@ -1848,7 +1894,7 @@ const PROPS = {
   posterCollege(ctx){ ctx.fillStyle='#e8e2d2'; ctx.fillRect(-8,-26,16,22);
     ctx.fillStyle='#2a2a2e'; ctx.fillRect(-6.5,-16,13,4.5);
     ctx.fillStyle='#e8e2d2';
-    ctx.font='bold 3.6px Georgia'; ctx.textAlign='center'; ctx.fillText('COLLEGE',0,-12.6); ctx.textAlign='left';
+    ctx.font='bold 2.9px Georgia'; ctx.textAlign='center'; ctx.fillText('COLLEGE',0,-12.8); ctx.textAlign='left';
     ctx.strokeStyle=PAL.ink; ctx.lineWidth=0.9; ctx.strokeRect(-8,-26,16,22); },
   posterTen(ctx){ ctx.fillStyle='#7a2c22'; ctx.fillRect(-8,-26,16,22);
     ctx.fillStyle='#e8d8b8';
@@ -1876,14 +1922,14 @@ const PROPS = {
     ctx.beginPath(); ctx.ellipse(0,-9,8,4,0,0,7); ctx.fill();
     ctx.strokeStyle=PAL.ink; ctx.lineWidth=1;
     ctx.beginPath(); ctx.ellipse(0,-5,11,6,0,0,7); ctx.stroke(); },
-  pokerTable(ctx){ ctx.fillStyle='#3f6a4a';
-    ctx.beginPath(); ctx.ellipse(0,-20,26,7,0,0,7); ctx.fill();
-    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.2;
-    ctx.beginPath(); ctx.ellipse(0,-20,26,7,0,0,7); ctx.stroke();
+  pokerTable(ctx){ ctx.fillStyle='#4f8a5f';
+    ctx.beginPath(); ctx.ellipse(0,-21,30,8,0,0,7); ctx.fill();
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.ellipse(0,-21,30,8,0,0,7); ctx.stroke();
     ctx.strokeStyle='#6a5a44'; ctx.lineWidth=2.4;
-    ctx.beginPath(); ctx.moveTo(-16,-16); ctx.lineTo(-16,0); ctx.moveTo(16,-16); ctx.lineTo(16,0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-18,-17); ctx.lineTo(-18,0); ctx.moveTo(18,-17); ctx.lineTo(18,0); ctx.stroke();
     const chip=['#c0392b','#2a5a8a','#3a3a3a'];
-    for (let i=0;i<3;i++){ ctx.fillStyle=chip[i]; ctx.fillRect(-8+i*7,-23-(i%2)*1.5,4,2); } },
+    for (let i=0;i<3;i++){ ctx.fillStyle=chip[i]; ctx.fillRect(-9+i*8,-24.5-(i%2)*1.5,4.5,2.4); } },
   fridge(ctx){ ctx.fillStyle='#d8d2c2'; ctx.fillRect(-8,-34,16,34);
     ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.2; ctx.strokeRect(-8,-34,16,34);
     ctx.beginPath(); ctx.moveTo(-8,-22); ctx.lineTo(8,-22); ctx.stroke();
@@ -1942,7 +1988,7 @@ function heroRooms(hx){
       props:[ ['stairs',L+144,-22,0], ['paddle',L+172,-40,0] ] },
     { id:'kitchen', name:'the kitchen',   x:L+188, y:-76,  w:104,  h:56,  floorY:-20, wall:'#a09270',
       props:[ ['fridge',L+206,-20,0], ['stove',L+238,-20,0], ['foreman',L+262,-26,0], ['trash',L+280,-20,0] ] },
-    { id:'bedA',    name:'Bedroom (front)', x:L+8, y:-136, w:96,   h:56,  floorY:-78, wall:'#7a8292',
+    { id:'bedA',    name:'the front bedroom', x:L+8, y:-136, w:96,   h:56,  floorY:-78, wall:'#7a8292',
       props:[ ['loftBed',L+42,-78,0], ['desk',L+82,-78,0], ['posterTen',L+16,-98,0] ] },
     { id:'chapter', name:'the chapter room', x:L+108, y:-136, w:56, h:56, floorY:-78, wall:'#5a4a3e',
       props:[ ['composite',L+136,-94,0], ['paddle',L+120,-96,0] ] },
@@ -2003,13 +2049,6 @@ function drawHeroShell(ctx, t){
       ctx.restore();
     }
   }
-  // faint room labels for the curious
-  if (CAM.z>1.7){
-    for (const r of HERO.rooms){
-      if (r.outdoor && r.id!=='roof') continue;
-      jitterText(ctx, r.name, r.x+6, r.floorY-r.h+11, 6, 840+r.x, {style:'italic', col:'rgba(58,47,38,0.55)'});
-    }
-  }
   // porch ghost so exterior actors keep their stage
   ctx.globalAlpha=0.55;
   ctx.fillStyle='#ded2b4';
@@ -2031,6 +2070,7 @@ function drawHeroShell(ctx, t){
     ctx.beginPath(); ctx.moveTo(px,rr.floorY); ctx.lineTo(px,rr.floorY-12); ctx.stroke();
   }
   ctx.beginPath(); ctx.moveTo(rr.x,rr.floorY-12); ctx.lineTo(rr.x+rr.w,rr.floorY-12); ctx.stroke();
+  heroRoomPlates(ctx);
 }
 
 // ==== §14 VIGNETTES =========================================================
@@ -2171,6 +2211,9 @@ function heroBlock(){ // 6 blocks/day like the plan
 function vigEligible(v, d){
   const hr=d.hour<6 ? d.hour+24 : d.hour;   // late night wraps
   if (v.dows && !v.dows.includes(d.dow)) return false;
+  if (v.flag==='strike' && !(ACTS.strikeUntil>d.dayAbs)) return false;
+  if (v.flag==='cupid'  && !(ACTS.cupidUntil>d.dayAbs)) return false;
+  if (v.noStrike && ACTS.strikeUntil>d.dayAbs) return false;
   return hr>=v.when[0] && hr<v.when[1];
 }
 function stageHero(){
@@ -2182,6 +2225,7 @@ function stageHero(){
   const roster=HERO.h.roster.map(pid=>PEOPLE[pid]);
   const used=new Set();
   for (const room of HERO.rooms){
+    if (room.id==='bar' && ACTS.strikeUntil>d.dayAbs) continue;   // dry week: basement dark
     const pool=VIGS.filter(v=>v.room===room.id && vigEligible(v,d));
     if (!pool.length) continue;
     // weighted deterministic pick
@@ -2195,7 +2239,8 @@ function stageHero(){
     let ok=true;
     pick.cast.forEach((c,ci)=>{
       let p=null;
-      if (c.cook && HERO.h.cook){ p=HERO.h.cook; }
+      if (pick.flag==='cupid' && ci<2){ p=PEOPLE[ci===0?ACTS.cupidA:ACTS.cupidB]; if(!p){ok=false;return;} }
+      else if (c.cook && HERO.h.cook){ p=HERO.h.cook; }
       else {
         const tagged=roster.filter(x=>!used.has(x.pid) && c.tag && x.tag===c.tag);
         const anyone=roster.filter(x=>!used.has(x.pid) && !x.female);
@@ -2237,6 +2282,19 @@ function drawHeroActors(ctx, rt, openT){
       (POSES[c.pose]||POSES.stand)(ctx, p, f);
       ctx.restore();
       HIT.push({pid:p.pid, sx, sy:sy-46*CAM.z});
+    });
+    // vignette props draw IN FRONT of the cast — the poker table hides laps,
+    // exactly like a dollhouse should
+    (st.vig.props||[]).forEach(pr=>{
+      const ax=room.x + room.w/2 + pr[1];
+      const sx=projX(band, ax);
+      if (sx<-120||sx>view.w+120) return;
+      const sy=groundY(band)+(room.floorY+(pr[2]||0))*CAM.z;
+      ctx.save();
+      ctx.translate(sx,sy);
+      ctx.scale(CAM.z,CAM.z);
+      PROPS[pr[0]](ctx, pr[3]||0, rt);
+      ctx.restore();
     });
     ctx.restore();
     // scripted bubbles (only when actually watching)
@@ -2318,7 +2376,27 @@ function drawShop(ctx, sh){
     ctx.beginPath();
     ctx.moveTo(x-w/2+4,-40); ctx.lineTo(x+w/2-4,-40); ctx.lineTo(x+w/2-10,-30); ctx.lineTo(x-w/2+10,-30); ctx.closePath(); ctx.fill();
     wob(ctx,[[x-w/2+4,-40],[x+w/2-4,-40]],id+8,{w:1.2});
-    jitterText(ctx, sh.name, x, -h+30, 8.5, id+9, {align:'center', col:'#efe7d2'});
+    // a proper sign board above the awning — signs live where signs live
+    ctx.fillStyle='#efe7d2';
+    ctx.fillRect(x-w/2+7, -56, w-14, 14);
+    wobRect(ctx, x-w/2+7, -56, w-14, 14, id+9, {w:1.2});
+    ctx.save();
+    ctx.font='bold 8px Georgia, serif'; ctx.textAlign='center'; ctx.fillStyle=shade(aw,0.9);
+    ctx.fillText(sh.name, x, -45.5);
+    ctx.restore();
+  }
+  // SAVE THE DRIVE-IN — dated perfectly, taped in the record shop window
+  if (sh.kind==='records' && ART.detail>=2){
+    ctx.fillStyle='#f4ead6'; ctx.fillRect(x-w/2+12, -30, 15, 19);
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=0.7; ctx.strokeRect(x-w/2+12, -30, 15, 19);
+    ctx.save();
+    ctx.font='bold 3.4px Georgia'; ctx.textAlign='center'; ctx.fillStyle='#8a2a1a';
+    ctx.fillText('SAVE', x-w/2+19.5, -25.4);
+    ctx.fillText('THE', x-w/2+19.5, -21.2);
+    ctx.fillText('DRIVE-IN', x-w/2+19.5, -17);
+    ctx.fillStyle=PAL.ink; ctx.font='2.6px Georgia';
+    ctx.fillText('meeting thurs.', x-w/2+19.5, -13.4);
+    ctx.restore();
   }
 }
 function drawSorHouse(ctx, so){
@@ -2450,12 +2528,15 @@ function stageOthers(){
   if (block===OTHERSTAGE.last) return;
   OTHERSTAGE.last=block;
   OTHERSTAGE.staged=[];
+  const raining=ACTS.rainDay===d.dayAbs, perfect=ACTS.perfectDay===d.dayAbs;
   for (const h of WORLD.houses){
     if (h.frat.hero) continue;
     const hr=d.hour;
-    const active=(hr>=12 && hr<24) && hash01(d.dayAbs, block, h.x)<0.62;
+    const active=!raining && (hr>=12 && hr<24) && hash01(d.dayAbs, block, h.x)<(perfect?0.95:0.62);
     if (!active) continue;
-    const g=GENERIC_PORCH[Math.floor(hash01(d.dayAbs, block, h.x, 2)*GENERIC_PORCH.length)];
+    const pranked=ACTS.prank && ACTS.prank.hx===h.x && ACTS.prank.until>d.dayAbs;
+    const bank=pranked ? PRANK_PORCH : (PORCH_SETS[h.frat.key]||GENERIC_PORCH);
+    const g=bank[Math.floor(hash01(d.dayAbs, block, h.x, 2)*bank.length)];
     const roster=h.roster.map(pid=>PEOPLE[pid]);
     const cast=[];
     for (let i=0;i<g.poses.length;i++){
@@ -2501,13 +2582,19 @@ function partiesTonight(){
   const d=CLOCK.derive();
   // a party "tonight" belongs to the evening's dayAbs (late hours borrow yesterday)
   const nightDay = d.hour<6 ? d.dayAbs-1 : d.dayAbs;
+  if (isFDDay(nightDay))   // Fancy Dress: every house, all out
+    return WORLD.houses.filter(h=>!(h.frat.hero&&ACTS.strikeUntil>nightDay))
+      .map(h=>({h, hero:h.frat.hero, big:true, fd:true}));
   const dow=nightDay%7;
   if (dow!==4 && dow!==5) return [];
   const out=[];
   for (const h of WORLD.houses){
     const isHero=h.frat.hero;
-    const p= isHero ? (dow===5?0.85:0.35) : 0.38;
-    if (hash01(nightDay, h.x, 77)<p) out.push({h, hero:isHero, big:isHero&&dow===5});
+    if (isHero && ACTS.strikeUntil>nightDay) continue;   // dry week
+    let p= isHero ? (dow===5?0.85:0.35) : 0.38;
+    if (isHero && ACTS.alumniUntil>nightDay) p=1;
+    if (hash01(nightDay, h.x, 77)<p)
+      out.push({h, hero:isHero, big:isHero&&(dow===5||ACTS.alumniUntil>nightDay)});
   }
   return out;
 }
@@ -2523,23 +2610,27 @@ function drawParties(ctx, rt){
   const tonight=partiesTonight();
   if (!tonight.length) return;
   const band=BAND.ROW;
+  const raining=ACTS.rainDay===CLOCK.derive().dayAbs;
   for (const pt of tonight){
     const hx=pt.h.x;
     const sx=projX(band,hx);
     if (sx<-400||sx>view.w+400) continue;
-    const n=pt.big?14:8;
+    const n=(pt.big?14:8)+(ACTS.perfectDay===CLOCK.derive().dayAbs?5:0);
     for (let i=0;i<n;i++){
       const off=(hash01(hx,i,1)-0.5)*(pt.big?300:220);
       const ax=hx+off;
       const isPorch=Math.abs(off)<130;
+      if (raining && !isPorch) continue;   // rain herds everyone under the roof
       const fy=isPorch?-26:0;
       const psx=projX(band,ax);
       if (psx<-60||psx>view.w+60) continue;
       const psy=groundY(band)+fy*CAM.z;
       // synthetic guests (not roster — the whole campus shows up)
-      const guest={ pid:-1, female:hash01(hx,i,2)<0.4, polo:PAL.polos[Math.floor(hash01(hx,i,3)*8)],
+      const female=hash01(hx,i,2)<0.4;
+      const guest={ pid:-1, female, polo: pt.fd ? (female?FD_DRESSES[i%FD_DRESSES.length]:'#26262e')
+          : PAL.polos[Math.floor(hash01(hx,i,3)*8)],
         skin:SKINS[Math.floor(hash01(hx,i,4)*6)], hair:HAIRS[Math.floor(hash01(hx,i,5)*7)],
-        hat:hash01(hx,i,6)<0.2, kind:'GUEST' };
+        hat:!pt.fd && hash01(hx,i,6)<0.2, kind:'GUEST' };
       const poseName= pt.big && isPorch ? 'highfive' : ['drink','talk','dance','stand'][Math.floor(hash01(hx,i,7)*4)];
       ctx.save();
       ctx.translate(psx,psy);
@@ -2640,6 +2731,1043 @@ function dialDraw(){
   g.fillStyle='#3a2f26';
   g.beginPath(); g.arc(c,c,S*0.03,0,7); g.fill();
 }
+
+// ==== §21 P4: THE CAST ======================================================
+// Gags, acts, the year's set pieces, and life in every band.
+
+// ---- calendar set pieces ---------------------------------------------------
+const FD_THEMES=['Casino Royale','Mardi Gras','Dressed to Kill','Pure Imagination',
+  'Riddle of the Sphinx','Studio 54','Arabian Nights','The Roaring Twenties'];
+const FD_DRESSES=['#c03a55','#2a4a7a','#7a2a6a','#c9a227'];
+function seedBaseYear(){ return 1999+((SEEDH>>>3)%5); }
+function isFDDay(dayAbs){ return dayAbs%360===171; }          // late February
+function fdTheme(dayAbs){ const y=Math.floor(dayAbs/360);
+  return FD_THEMES[Math.floor(hash01(y,313)*FD_THEMES.length)]; }
+function isMCDay(dayAbs){ const y=Math.floor(dayAbs/360);      // Mock Con parade, every 4th year
+  return (seedBaseYear()+y)%4===0 && dayAbs%360===158; }
+
+// ---- acts (the drawer) ------------------------------------------------------
+const ACTS={ rainDay:-1, perfectDay:-1, strikeUntil:-1, alumniUntil:-1,
+  prank:null, cupidA:-1, cupidB:-1, cupidUntil:-1, cadets:null,
+  note:null, noteUntil:0, noteTarget:null };
+function actNote(txt, target){
+  ACTS.note=txt; ACTS.noteUntil=performance.now()/1000+26; ACTS.noteTarget=target||null;
+}
+function actsInit(){
+  const btn=document.createElement('button');
+  btn.id='actsbtn'; btn.className='hud'; btn.textContent='acts'; btn.style.pointerEvents='auto';
+  document.body.appendChild(btn);
+  const dr=document.createElement('div');
+  dr.id='actsdrawer';
+  dr.innerHTML='<div class="acttitle">HAND OF PROVIDENCE</div>';
+  document.body.appendChild(dr);
+  const defs=[
+    ['hand down a strike', ()=>{
+      const d=CLOCK.derive(); ACTS.strikeUntil=d.dayAbs+5;
+      actNote('the Dean’s letter is on the ΓΔ door. dry week.', {band:'ROW', x:WORLD.hero.x});
+      HERO.lastBlock=-1; }],
+    ['forgive the house', ()=>{
+      ACTS.strikeUntil=-1; ACTS.prank=null;
+      actNote('all is forgiven. probably earned, definitely forgiven.', {band:'ROW', x:WORLD.hero.x});
+      HERO.lastBlock=-1; OTHERSTAGE.last=-1; }],
+    ['rain it out', ()=>{
+      const d=CLOCK.derive(); ACTS.rainDay=d.dayAbs; ACTS.perfectDay=-1;
+      actNote('rain settles over Lexford. porches empty, spirits damp.');
+      OTHERSTAGE.last=-1; }],
+    ['perfect weather', ()=>{
+      const d=CLOCK.derive(); ACTS.perfectDay=d.dayAbs; ACTS.rainDay=-1;
+      actNote('a ten out of ten. everyone finds a reason to be outside.');
+      OTHERSTAGE.last=-1; }],
+    ['play Cupid', ()=>{
+      const d=CLOCK.derive();
+      const bros=WORLD.hero.roster.map(p=>PEOPLE[p]).filter(p=>!p.tag);
+      const a=bros[Math.floor(hash01(d.dayAbs,61)*bros.length)]||PEOPLE[WORLD.hero.roster[0]];
+      const so=WORLD.sors[0];
+      const b=PEOPLE[so.roster[Math.floor(hash01(d.dayAbs,62)*so.roster.length)]];
+      ACTS.cupidA=a.pid; ACTS.cupidB=b.pid; ACTS.cupidUntil=d.dayAbs+7;
+      actNote(a.name+' and '+b.first+' keep ending up on the same porch.', {band:'ROW', x:WORLD.hero.x});
+      HERO.lastBlock=-1; }],
+    ['start a prank war', ()=>{
+      const d=CLOCK.derive();
+      const targets=WORLD.houses.filter(h=>!h.frat.hero);
+      const t=targets[Math.floor(hash01(d.dayAbs,63)*targets.length)];
+      ACTS.prank={hx:t.x, until:d.dayAbs+4};
+      actNote('forty flamingos bloom on the '+t.frat.nick+'’ lawn overnight.', {band:'ROW', x:t.x});
+      OTHERSTAGE.last=-1; }],
+    ['alumni money lands', ()=>{
+      const d=CLOCK.derive(); ACTS.alumniUntil=d.dayAbs+3;
+      actNote('a ’74 check clears. the good keg. a banner. gratitude.', {band:'ROW', x:WORLD.hero.x}); }],
+    ['march the cadets', ()=>{
+      ACTS.cadets={t0:performance.now()/1000, x0:unprojX(BAND.TOWN,-120)};
+      actNote('the Institute is marching down Main. nobody knows why.'); }],
+  ];
+  for (const [label,fn] of defs){
+    const b=document.createElement('button');
+    b.textContent=label;
+    b.onclick=()=>{ fn(); dr.style.display='none'; };
+    dr.appendChild(b);
+  }
+  btn.onclick=()=>{ dr.style.display=dr.style.display==='flex'?'none':'flex'; };
+}
+
+// ---- margin-note nudge -------------------------------------------------------
+const NUDGE={el:null, target:null, txt:''};
+function nudgeInit(){
+  const el=document.createElement('div');
+  el.id='nudge'; document.body.appendChild(el);
+  NUDGE.el=el;
+  el.onclick=()=>{
+    if (!NUDGE.target) return;
+    const b=BAND[NUDGE.target.band]||BAND.ROW;
+    CAM.tx=clamp(NUDGE.target.x/b.pf, CAM.minX, CAM.maxX);
+    if (CAM.tz<0.7) CAM.tz=0.85;
+  };
+}
+function nudgeText(){
+  const rtNow=performance.now()/1000;
+  if (ACTS.note && rtNow<ACTS.noteUntil) return [ACTS.note, ACTS.noteTarget];
+  const d=CLOCK.derive();
+  const hr=d.hour;
+  if (isMCDay(d.dayAbs) && hr>=9.5 && hr<15.5)
+    return ['MOCK CONVENTION: parade on Main. elephants. real ones.', {band:'TOWN', x:1150}];
+  if (isFDDay(d.dayAbs))
+    return ['FANCY DRESS tonight — “'+fdTheme(d.dayAbs)+'”', {band:'ROW', x:WORLD.hero.x}];
+  if (ACTS.strikeUntil>d.dayAbs)
+    return ['dry week at ΓΔ. day '+(5-(ACTS.strikeUntil-d.dayAbs)+1)+' of reflection.', {band:'ROW', x:WORLD.hero.x}];
+  if (hr>=16){
+    const pts=partiesTonight();
+    if (pts.length){
+      const hero=pts.find(p=>p.big&&p.hero);
+      if (hero) return ['tonight: Evenflow at ΓΔ. the Alive solo belongs to everyone.', {band:'ROW', x:WORLD.hero.x}];
+      return ['tonight: party at '+pts.map(p=>p.h.frat.letters).join(', '), {band:'ROW', x:pts[0].h.x}];
+    }
+  }
+  if (d.dow===3 && hr>=17) return ['Thursday: poker in the TV room. bring your books money.', {band:'ROW', x:WORLD.hero.x}];
+  if (d.dow===0 && hr>=15 && hr<20.6) return ['chapter at 7. the DJ motion returns. it will die.', {band:'ROW', x:WORLD.hero.x}];
+  if (d.dow===6 && hr>=8 && hr<12) return ['Sunday morning: the porch detectives convene.', {band:'ROW', x:WORLD.hero.x}];
+  return [null,null];
+}
+function updateNudge(){
+  if (!NUDGE.el) return;
+  const [txt,target]=nudgeText();
+  NUDGE.target=target;
+  if (txt!==NUDGE.txt){
+    NUDGE.txt=txt;
+    if (!txt){ NUDGE.el.style.display='none'; }
+    else { NUDGE.el.style.display='block'; NUDGE.el.textContent=txt; }
+  }
+}
+
+// ---- gags: cast per seed ----------------------------------------------------
+const GAGS={ pizza:true, ladder:true, couch:true, flamingo:true, tunnel:true,
+  ladderPid:-1, pizzaPid:-1, examPid:-1, alumName:'Callahan' };
+Object.assign(TAG_KNOWN, {
+  pizzaOracle:'knowing every order on the Row by heart',
+  honorable:'self-scheduling finals under trees',
+  newHouseProud:'mentioning the new house',
+  mixKeeper:'the mixer guest list',
+  chairEverything:'chairing every committee',
+});
+function buildGags(){
+  GAGS.pizza=rw()<0.9; GAGS.ladder=rw()<0.8; GAGS.couch=rw()<0.85;
+  GAGS.flamingo=rw()<0.75; GAGS.tunnel=rw()<0.85;
+  GAGS.alumName=SURNAMES[SEEDH%SURNAMES.length];
+  const lad=WORLD.hero.roster.map(p=>PEOPLE[p]).find(p=>p.tag==='ladderTruther');
+  GAGS.ladderPid=lad?lad.pid:-1;
+  const pz=newPerson('TOWNIE','ZA',0,RNG.name);
+  pz.tag='pizzaOracle'; pz.orgLabel='Za delivery'; pz.polo='#c0392b'; pz.hat=true;
+  GAGS.pizzaPid=pz.pid;
+  const ex=newPerson('STUDENT','COL',2,RNG.name);
+  ex.tag='honorable'; ex.orgLabel='Colonnade College';
+  GAGS.examPid=ex.pid;
+}
+const COUCH_SITES=[660,1030,1400,2140,2880,3320,4060];
+const FLAM_SITES=[760,1210,1980,2520,3240,3980,4300];
+
+// ---- sororities & town folk ---------------------------------------------------
+const SOR_LINES=[
+  'The new house still smells like new house.',
+  'Do NOT wear good shoes to Red Square.',
+  'The mixer list: him, him, hmm, absolutely not him.',
+  'Chapter in ten. Bring your smile.',
+  'He said “hey” with two extra y’s. It means something.',
+  '(waving at literally everyone — the Speaking Tradition)',
+];
+const SORSTAGE={last:-1, staged:[]};
+function buildSors(){
+  WORLD.sors=[];
+  const sorTags=['newHouseProud','mixKeeper','chairEverything'];
+  for (const so of V2SORS){
+    const roster=[];
+    for (let i=0;i<6;i++){
+      const p=newPerson('SOROR', so.letters, 1+(i%4), RNG.name);
+      p.sorLetters=so.letters;
+      if (i<3) p.tag=sorTags[i];
+      roster.push(p.pid);
+    }
+    WORLD.sors.push({letters:so.letters, x:so.x, roster});
+  }
+  // town walkers
+  WORLD.twalk=[];
+  for (let i=0;i<5;i++){
+    const w=makeWalker(40+i);
+    w.band='TOWN'; w.gy=8; w.x=700+hash01(i,44)*3300; w.lastSay=-99;
+    WORLD.twalk.push(w);
+  }
+}
+const SHOP_TALK={
+  bar:     {when:[20.5,25.5], lines:['Pitchers are on Chairman tonight.','The tin ceiling has heard worse.']},
+  pizza:   {when:[22,26],     lines:['One slice. Okay, two. Okay.','Dom knows the order by the knock.']},
+  icecream:{when:[13,17.5],   lines:['One scoop is a lie we tell ourselves.']},
+  cinema:  {when:[19,21.5],   lines:['It’s the one with the asteroid. Again. We’re going.']},
+  store:   {when:[10,13],     lines:['List says: everything, and ice.']},
+  abc:     {when:[16,19],     lines:['He has the Post-it. He IS the Post-it.']},
+  laundry: {when:[10,16],     lines:['Reading liner notes while the darks spin.']},
+};
+function stageSors(){
+  const d=CLOCK.derive();
+  const block=heroBlock()+d.dayAbs*6;
+  if (block===SORSTAGE.last) return;
+  SORSTAGE.last=block;
+  SORSTAGE.staged=[];
+  const raining=ACTS.rainDay===d.dayAbs;
+  for (const so of WORLD.sors){
+    if (raining) continue;
+    if (!(d.hour>=14 && d.hour<23)) continue;
+    if (hash01(d.dayAbs, block, so.x)>0.6) continue;
+    const a=so.roster[Math.floor(hash01(d.dayAbs,block,so.x,1)*so.roster.length)];
+    let b=so.roster[Math.floor(hash01(d.dayAbs,block,so.x,2)*so.roster.length)];
+    if (b===a) b=so.roster[(so.roster.indexOf(a)+1)%so.roster.length];
+    SORSTAGE.staged.push({so, cast:[a,b], t0:performance.now()/1000, fired:{}});
+  }
+}
+function drawTownLife(ctx, rt){
+  const band=BAND.TOWN, gy=groundY(band);
+  const d=CLOCK.derive();
+  stageSors();
+  // sorority porch pairs
+  for (const st of SORSTAGE.staged){
+    const xs=[st.so.x-26, st.so.x-4];
+    for (let i=0;i<2;i++){
+      const p=PEOPLE[st.cast[i]];
+      const sx=projX(band, xs[i]);
+      if (sx<-60||sx>view.w+60) continue;
+      const sy=gy+(-18)*CAM.z;
+      ctx.save();
+      ctx.translate(sx,sy); ctx.scale(CAM.z*(i?-1:1),CAM.z);
+      POSES.talk(ctx, p, (rt*0.5+i*0.4)%1);
+      ctx.restore();
+      HIT.push({pid:p.pid, sx, sy:sy-46*CAM.z});
+    }
+    const loopLen=40, el=(rt-st.t0)%loopLen, kk=Math.floor((rt-st.t0)/loopLen);
+    if (el>=9 && !st.fired[kk] && CAM.z>0.5){
+      st.fired[kk]=1;
+      if (hash01(st.so.x,kk)<0.6){
+        const txt=SOR_LINES[Math.floor(hash01(st.so.x,kk,2)*SOR_LINES.length)];
+        sayAt('TOWN', st.so.x-16, -18-58, txt, {dur:3.8, think:txt.startsWith('(')});
+      }
+    }
+  }
+  // town walkers
+  for (const w of WORLD.twalk){
+    const sx=projX(band, w.x);
+    if (sx>=-60 && sx<=view.w+60){
+      ctx.save();
+      ctx.translate(sx, gy+w.gy*CAM.z);
+      ctx.scale(CAM.z, CAM.z);
+      drawFigure(ctx, w, rt);
+      ctx.restore();
+    }
+    // shop chatter
+    if (rt-w.lastSay>38 && CAM.z>0.55){
+      const hrW=d.hour<6?d.hour+24:d.hour;
+      for (const sh of TOWN_SHOPS){
+        const t=SHOP_TALK[sh.kind];
+        if (!t || Math.abs(w.x-sh.x)>42) continue;
+        if (hrW<t.when[0]||hrW>=t.when[1]) continue;
+        if (hash01(Math.floor(rt), w.id)<0.5) break;
+        w.lastSay=rt;
+        sayAt('TOWN', w.x, -62, t.lines[Math.floor(hash01(Math.floor(rt),w.id,2)*t.lines.length)], {dur:3.6});
+        break;
+      }
+    }
+  }
+  // Mock Convention parade — every 4th winter, elephants on Main
+  if (isMCDay(d.dayAbs) && d.hour>=9.5 && d.hour<15.5){
+    const head=900+((rt*16)%3400);
+    drawParade(ctx, band, gy, head, rt);
+  }
+  // the cadets march down Main (an act)
+  if (ACTS.cadets){
+    const t=rt-ACTS.cadets.t0;
+    for (let i=0;i<8;i++){
+      const wx=ACTS.cadets.x0 + t*82 - i*30;
+      const sx=projX(band, wx);
+      if (sx<-60||sx>view.w+60) continue;
+      ctx.save();
+      ctx.translate(sx, gy+30*CAM.z);
+      ctx.scale(CAM.z, CAM.z);
+      const ph=Math.sin(t*6.8);   // in step. all of them. that's the point.
+      ctx.strokeStyle='#5a5f6a'; ctx.lineWidth=4.6; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(0,-16); ctx.lineTo(5*ph,0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,-16); ctx.lineTo(-5*ph,0); ctx.stroke();
+      ctx.fillStyle=PAL.cadet;
+      ctx.beginPath(); ctx.moveTo(-6,-16); ctx.lineTo(6,-16); ctx.lineTo(7,-36); ctx.lineTo(-7,-36); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.8; ctx.stroke();
+      ctx.strokeStyle='#e8e2d2'; ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(-5,-33); ctx.lineTo(5,-30); ctx.stroke();   // the cross-belt
+      ctx.fillStyle=SKINS[(i*2)%6];
+      ctx.beginPath(); ctx.arc(0,-43,8.6,0,7); ctx.fill();
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.8; ctx.stroke();
+      ctx.fillStyle='#e8e2d2';
+      ctx.fillRect(-8,-54,16,6);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.3; ctx.strokeRect(-8,-54,16,6);
+      ctx.restore();
+    }
+    if (Math.floor(t)%13===2 && (t%1)<0.03 && CAM.z>0.4)
+      sayAt('TOWN', ACTS.cadets.x0+t*82-90, 30-70, 'Left… left… left, right, left.', {dur:2.8});
+  }
+  // the Traveller — brand new this year, named for a famous horse
+  const hrW2=d.hour<6?d.hour+24:d.hour;
+  if ((d.dow===4||d.dow===5||(d.hour<6&&(d.dow===5||d.dow===6))) && (hrW2>=22 && hrW2<26.5)){
+    const bx=((rt*64)%7200)-1100;
+    const sx=projX(band, bx);
+    if (sx>-140 && sx<view.w+140){
+      ctx.save();
+      ctx.translate(sx, gy+30*CAM.z);
+      ctx.scale(CAM.z, CAM.z);
+      ctx.fillStyle='#2e5a3c';
+      ctx.beginPath(); ctx.roundRect(-52,-36,104,32,4); ctx.fill();
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=2; ctx.stroke();
+      ctx.fillStyle='#ffe9a8';
+      for (let i=0;i<5;i++) ctx.fillRect(-44+i*19,-31,13,10);
+      ctx.fillStyle='#e8e2d2'; ctx.fillRect(-52,-19,104,3);
+      ctx.save(); ctx.font='bold 6.5px Georgia'; ctx.textAlign='center'; ctx.fillStyle='#e8e2d2';
+      ctx.fillText('T R A V E L L E R', 0, -8.5); ctx.restore();
+      for (const wx2 of [-34,34]){
+        ctx.fillStyle='#2e2a26'; ctx.beginPath(); ctx.arc(wx2,-3,7,0,7); ctx.fill();
+        ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6; ctx.stroke();
+      }
+      // headlight cone at night
+      ctx.globalAlpha=0.25; ctx.fillStyle='#ffe9a8';
+      ctx.beginPath(); ctx.moveTo(52,-14); ctx.lineTo(86,-20); ctx.lineTo(86,-4); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+function drawParade(ctx, band, gy, head, rt){
+  const yr=(seedBaseYear()+Math.floor(CLOCK.derive().dayAbs/360))%100;
+  const put=(wx,fn)=>{
+    const sx=projX(band,wx);
+    if (sx<-160||sx>view.w+160) return;
+    ctx.save(); ctx.translate(sx, gy+26*CAM.z); ctx.scale(CAM.z,CAM.z); fn(); ctx.restore();
+  };
+  // banner pair
+  put(head, ()=>{
+    ctx.fillStyle='#efe7d2'; ctx.fillRect(-52,-58,104,20);
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6; ctx.strokeRect(-52,-58,104,20);
+    ctx.save(); ctx.font='bold 8px Georgia'; ctx.textAlign='center'; ctx.fillStyle='#27406b';
+    ctx.fillText('MOCK CONVENTION', 0, -47);
+    ctx.font='italic 6px Georgia'; ctx.fillText('’0'+(yr%10)+' · every vote counts (pretend)', 0, -40.5);
+    ctx.restore();
+    for (const px of [-56,56]){
+      ctx.strokeStyle='#8a6a4a'; ctx.lineWidth=2.4;
+      ctx.beginPath(); ctx.moveTo(px,0); ctx.lineTo(px,-58); ctx.stroke();
+      const guest={pid:-1,female:false,polo:'#27406b',skin:SKINS[2],hair:HAIRS[1],hat:false};
+      ctx.save(); ctx.translate(px+(px<0?8:-8),0); POSES.stand(ctx,guest,(rt*0.5)%1); ctx.restore();
+    }
+  });
+  // elephants (real ones. rented.)
+  put(head-150, ()=>drawElephant(ctx, rt, 0));
+  put(head-290, ()=>drawElephant(ctx, rt, 1));
+  // handler
+  put(head-220, ()=>{
+    const guest={pid:-1,female:false,polo:'#c0392b',skin:SKINS[4],hair:HAIRS[5],hat:true};
+    POSES.talk(ctx,guest,(rt*0.6)%1);
+  });
+  // state float
+  put(head-430, ()=>{
+    ctx.fillStyle='#9a8a72'; ctx.fillRect(-58,-16,116,10);
+    for (const wx of [-40,40]){
+      ctx.fillStyle='#2e2a26'; ctx.beginPath(); ctx.arc(wx,-4,7,0,7); ctx.fill();
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6; ctx.stroke();
+    }
+    ctx.fillStyle='#c03a30'; ctx.fillRect(-52,-34,104,18);
+    ctx.fillStyle='#efe7d2'; ctx.fillRect(-52,-24,104,3);
+    ctx.save(); ctx.font='bold 8px Georgia'; ctx.textAlign='center'; ctx.fillStyle='#efe7d2';
+    ctx.fillText('VIRGINIA', 0, -21.5); ctx.restore();
+    const guest={pid:-1,female:true,polo:'#c9a227',skin:SKINS[0],hair:HAIRS[4],hat:false};
+    ctx.save(); ctx.translate(-20,-16); POSES.highfive(ctx,guest,(rt*0.4)%1); ctx.restore();
+  });
+  // curbside crowd, transfixed
+  for (let i=0;i<7;i++){
+    const cx=600+i*520+((i%2)?40:0);
+    put(cx, ()=>{
+      const guest={pid:-1, female:hash01(cx,2)<0.45, polo:PAL.polos[Math.floor(hash01(cx,3)*8)],
+        skin:SKINS[Math.floor(hash01(cx,4)*6)], hair:HAIRS[Math.floor(hash01(cx,5)*7)], hat:hash01(cx,6)<0.2};
+      POSES.stand(ctx,guest,(rt*0.3+i*0.17)%1);
+    });
+  }
+}
+function drawElephant(ctx, rt, k){
+  const ph=Math.sin(rt*2.2+k*1.7);
+  ctx.save();
+  ctx.scale(-1,1);   // parade marches left-to-right; elephants face forward
+  // legs
+  ctx.strokeStyle='#7a7f86'; ctx.lineWidth=7; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-18,-22); ctx.lineTo(-18-ph*3,0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(18,-22); ctx.lineTo(18+ph*3,0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-8,-22); ctx.lineTo(-8+ph*2,0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(9,-22); ctx.lineTo(9-ph*2,0); ctx.stroke();
+  // body
+  ctx.fillStyle='#8a8f96';
+  ctx.beginPath(); ctx.ellipse(0,-34,32,19,0,0,7); ctx.fill();
+  ctx.strokeStyle=PAL.ink; ctx.lineWidth=2.4; ctx.stroke();
+  // ceremonial blanket
+  ctx.fillStyle='#c03a30'; ctx.fillRect(-18,-46,36,20);
+  ctx.fillStyle='#c9a227'; ctx.fillRect(-18,-28,36,3);
+  ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.4; ctx.strokeRect(-18,-46,36,23);
+  // head + ear + trunk
+  ctx.fillStyle='#8a8f96';
+  ctx.beginPath(); ctx.arc(34,-42,12,0,7); ctx.fill();
+  ctx.strokeStyle=PAL.ink; ctx.lineWidth=2.2; ctx.stroke();
+  ctx.fillStyle='#7a7f86';
+  ctx.beginPath(); ctx.ellipse(28,-44,7,10,0.3,0,7); ctx.fill();
+  ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6; ctx.stroke();
+  ctx.strokeStyle='#8a8f96'; ctx.lineWidth=5.5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(43,-40);
+  ctx.quadraticCurveTo(52,-32+ph*2, 48+ph*3, -18);
+  ctx.stroke();
+  ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(43,-37);
+  ctx.quadraticCurveTo(51,-31+ph*2, 47+ph*3, -18); ctx.stroke();
+  // the cel eye — even the elephant gets one
+  ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.ellipse(38,-45,2.6,3.2,0,0,7); ctx.fill();
+  ctx.strokeStyle=PAL.ink; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle=PAL.ink;
+  ctx.beginPath(); ctx.arc(38.8,-44.6,1.1,0,7); ctx.fill();
+  ctx.restore();
+}
+
+// ---- hill life: the honor system, the steam tunnel --------------------------
+function drawHillLife(ctx, rt){
+  const band=BAND.HILL, gy=groundY(band);
+  const d=CLOCK.derive();
+  // one kid taking his self-scheduled final under a tree. alone. trusted.
+  if (d.dow<5 && d.hour>=10 && d.hour<16 && hash01(d.dayAbs,71)<0.6){
+    const wx=1815;
+    const sx=projX(band,wx);
+    if (sx>-60 && sx<view.w+60){
+      const p=PEOPLE[GAGS.examPid];
+      const sy=gy+(-46)*CAM.z;
+      ctx.save();
+      ctx.translate(sx,sy); ctx.scale(CAM.z*0.8,CAM.z*0.8);
+      POSES.read(ctx, p, (rt*0.25)%1);
+      ctx.restore();
+      if (p) HIT.push({pid:p.pid, sx, sy:sy-40*CAM.z});
+    }
+  }
+  // the 3 AM light near the steam tunnel grate (Thursday nights, mostly)
+  if (GAGS.tunnel && (d.hour>=2.5 && d.hour<3.9) && GLOWSPR){
+    const sx=projX(band, 968);
+    if (sx>-80 && sx<view.w+80){
+      const sy=gy+(-34)*CAM.z;
+      const fl=0.55+vnoise(rt*1.7, 5)*0.45;
+      ctx.save();
+      ctx.globalCompositeOperation='lighter';
+      ctx.globalAlpha=0.55*fl;
+      const r=26*CAM.z;
+      ctx.drawImage(GLOWSPR, sx-r, sy-r, r*2, r*2);
+      ctx.restore();
+    }
+  }
+}
+
+// ---- river life: tubing the gorge -------------------------------------------
+function drawRiverLife(ctx, rt){
+  const d=CLOCK.derive();
+  const warm=(d.dayInYear<75||d.dayInYear>235);
+  if (!((d.dow===5||d.dow===6) && d.hour>=12.5 && d.hour<17.5 && warm)) return;
+  if (ACTS.rainDay===d.dayAbs) return;
+  const band=BAND.RIVER, gy=groundY(band);
+  for (let i=0;i<3;i++){
+    const wx=800+(((rt*20)+i*1300)%3600);
+    const sx=projX(band,wx);
+    if (sx<-60||sx>view.w+60) continue;
+    const bob=Math.sin(rt*1.6+i*2)*2.4;
+    const sy=gy+(52+bob)*CAM.z;
+    ctx.save();
+    ctx.translate(sx,sy); ctx.scale(CAM.z,CAM.z);
+    // inner tube
+    ctx.fillStyle='#26262a';
+    ctx.beginPath(); ctx.ellipse(0,0,15,5.5,0,0,7); ctx.fill();
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6; ctx.stroke();
+    // recliner-in-chief
+    const skin=SKINS[i%SKINS.length];
+    ctx.fillStyle=skin;
+    ctx.beginPath(); ctx.arc(-7,-7,5,0,7); ctx.fill();
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.4; ctx.stroke();
+    ctx.fillStyle=PAL.polos[(i*3)%8];
+    ctx.fillRect(-4,-8,10,5);
+    ctx.strokeStyle=skin; ctx.lineWidth=2.6; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(6,-5); ctx.lineTo(12,-8); ctx.stroke();   // arm on the rope
+    // the cooler gets its own tube. obviously.
+    ctx.fillStyle='#26262a';
+    ctx.beginPath(); ctx.ellipse(24,1,10,4,0,0,7); ctx.fill();
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.3; ctx.stroke();
+    ctx.save(); ctx.translate(24,-1); ctx.scale(0.8,0.8); PROPS.cooler(ctx,0); ctx.restore();
+    ctx.strokeStyle='#c9b48a'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(12,-6); ctx.quadraticCurveTo(18,-2,16,0); ctx.stroke();
+    ctx.restore();
+  }
+  if (Math.floor(rt)%47===0 && CAM.z>0.4 && hash01(Math.floor(rt),9)<0.06)
+    sayAt('RIVER', 800+((rt*20)%3600), 30, ['The river provides.','Rapids in 400 yards. Nobody paddle.','(supreme calm)'][Math.floor(hash01(Math.floor(rt),3)*3)], {dur:3.4});
+}
+
+// ---- gag layer on the Row -----------------------------------------------------
+function drawFlamingo(ctx, x, y, k){
+  ctx.save(); ctx.translate(x,y);
+  if (k%2) ctx.scale(-1,1);
+  ctx.strokeStyle='#e88aa0'; ctx.lineWidth=1.6;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-9); ctx.stroke();
+  ctx.fillStyle='#f09ab0';
+  ctx.beginPath(); ctx.ellipse(1,-12,5,3.4,0,0,7); ctx.fill();
+  ctx.strokeStyle='#f09ab0'; ctx.lineWidth=1.8;
+  ctx.beginPath(); ctx.moveTo(5,-13); ctx.quadraticCurveTo(9,-19,6,-21); ctx.stroke();
+  ctx.fillStyle='#e88aa0'; ctx.beginPath(); ctx.arc(6,-21,1.8,0,7); ctx.fill();
+  ctx.strokeStyle=PAL.ink; ctx.lineWidth=0.8;
+  ctx.beginPath(); ctx.ellipse(1,-12,5,3.4,0,0,7); ctx.stroke();
+  ctx.restore();
+}
+function drawGags(ctx, rt){
+  const band=BAND.ROW, gy=groundY(band);
+  const d=CLOCK.derive();
+  const wk=Math.floor(d.dayAbs/7);
+  const put=(wx,wy,fn)=>{
+    const sx=projX(band,wx);
+    if (sx<-140||sx>view.w+140) return false;
+    ctx.save(); ctx.translate(sx, gy+wy*CAM.z); ctx.scale(CAM.z,CAM.z); fn(); ctx.restore();
+    return true;
+  };
+  // the migrating couch — somewhere new every week; nobody moves it; it moves
+  if (GAGS.couch){
+    const site=COUCH_SITES[Math.floor(hash01(wk,21)*COUCH_SITES.length)];
+    put(site, -2, ()=>{ PROPS.couch(ctx, wk%3); });
+  }
+  // the flamingo (singular). unless there's a prank war. then: plural.
+  if (GAGS.flamingo && !(ACTS.prank && ACTS.prank.until>d.dayAbs)){
+    const fx=FLAM_SITES[Math.floor(hash01(wk,22)*FLAM_SITES.length)];
+    put(fx, -2, ()=>drawFlamingo(ctx,0,0,wk));
+  }
+  if (ACTS.prank && ACTS.prank.until>d.dayAbs){
+    const hx=ACTS.prank.hx;
+    for (let i=0;i<14;i++){
+      const fx=hx-170+hash01(hx,i,31)*250;
+      if (Math.abs(fx-hx)<40) continue;   // spare the walkway
+      put(fx, -1, ()=>drawFlamingo(ctx,0,0,i));
+    }
+    put(hx-190, -2, ()=>{     // FOR SALE, by order of persons unknown
+      ctx.strokeStyle='#8a7862'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-26); ctx.stroke();
+      ctx.fillStyle='#efe7d2'; ctx.fillRect(-16,-42,32,17);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.2; ctx.strokeRect(-16,-42,32,17);
+      ctx.save(); ctx.font='bold 6px Georgia'; ctx.textAlign='center'; ctx.fillStyle='#8a2a1a';
+      ctx.fillText('FOR SALE', 0, -34.5);
+      ctx.font='italic 3.6px Georgia'; ctx.fillStyle=PAL.ink;
+      ctx.fillText('inquire literally anywhere', 0, -29.5);
+      ctx.restore();
+    });
+  }
+  // secret society chalk mark — a fresh one near a different house each week
+  if (CAM.z>1.1 && d.dow>=4){
+    const mk=WORLD.houses[Math.floor(hash01(wk,23)*WORLD.houses.length)];
+    put(mk.x+168, 25, ()=>{
+      ctx.strokeStyle='rgba(244,240,230,0.85)'; ctx.lineWidth=1.3;
+      ctx.beginPath(); ctx.arc(0,0,5.5,0.6,5.9); ctx.stroke();   // the C
+      ctx.fillStyle='rgba(244,240,230,0.85)';
+      ctx.beginPath(); ctx.arc(-1.4,-1.2,1,0,7); ctx.fill();
+      ctx.beginPath(); ctx.arc(1.6,-1.2,1,0,7); ctx.fill();
+      ctx.fillRect(-2,1.4,4,1.2);                                 // the grin
+    });
+  }
+  // dry week: the Dean's letter on the door
+  if (ACTS.strikeUntil>d.dayAbs){
+    put(WORLD.hero.x+24, -36, ()=>{
+      ctx.save(); ctx.rotate(-0.04);
+      ctx.fillStyle='#f7f3e6'; ctx.fillRect(-9,-13,18,24);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1; ctx.strokeRect(-9,-13,18,24);
+      ctx.fillStyle='#8a2a1a'; ctx.beginPath(); ctx.arc(4.5,6,2.2,0,7); ctx.fill();
+      ctx.font='bold 3.4px Georgia'; ctx.textAlign='center'; ctx.fillStyle=PAL.ink;
+      ctx.fillText('NOTICE', 0, -8.5);
+      ctx.font='2.4px Georgia';
+      ctx.fillText('office of the dean', 0, -5.2);
+      ctx.restore();
+    });
+  }
+  // alumni gratitude: the banner and the good keg truck
+  if (ACTS.alumniUntil>d.dayAbs){
+    put(WORLD.hero.x, -100, ()=>{
+      ctx.fillStyle='#efe7d2'; ctx.fillRect(-108,-9,216,18);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.4; ctx.strokeRect(-108,-9,216,18);
+      ctx.save(); ctx.font='bold 9px Georgia'; ctx.textAlign='center'; ctx.fillStyle='#27406b';
+      ctx.fillText('THANK YOU, MR. '+GAGS.alumName.toUpperCase()+' ’74', 0, 3.2);
+      ctx.restore();
+    });
+    put(WORLD.hero.x+262, 45, ()=>{
+      ctx.fillStyle='#e8e2d2'; ctx.fillRect(-30,-40,68,34);       // box
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=2; ctx.strokeRect(-30,-40,68,34);
+      ctx.fillStyle='#c9bda1'; ctx.fillRect(-52,-28,22,22);        // cab
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.8; ctx.strokeRect(-52,-28,22,22);
+      ctx.fillStyle='#c8d4da'; ctx.fillRect(-49,-25,12,9);
+      for (const wx of [-40,-12,24]){
+        ctx.fillStyle='#2e2a26'; ctx.beginPath(); ctx.arc(wx,-4,7,0,7); ctx.fill();
+        ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6; ctx.stroke();
+      }
+      ctx.save(); ctx.font='bold 6px Georgia'; ctx.textAlign='center'; ctx.fillStyle='#27406b';
+      ctx.fillText('BLUE RIDGE', 4, -28);
+      ctx.fillText('BEVERAGE', 4, -21);
+      ctx.restore();
+    });
+  }
+}
+
+// ---- specials: figures with jobs ---------------------------------------------
+const SPEC={ pizza:null, hooded:null, ladder:null };
+function specialsTick(dt, rt){
+  const d=CLOCK.derive();
+  const hrW=d.hour<6?d.hour+24:d.hour;
+  const dowEff=d.hour<6?(d.dow+6)%7:d.dow;
+  // the pizza oracle: one delivery a night, knows everyone
+  if (GAGS.pizza && hrW>=21.3 && hrW<23.8){
+    if (!SPEC.pizza || SPEC.pizza.day!==d.dayAbs){
+      const target=WORLD.houses[Math.floor(hash01(d.dayAbs,88)*WORLD.houses.length)];
+      SPEC.pizza={day:d.dayAbs, x:4640, dir:-1, target:target.x+52, tname:target.frat.letters,
+        state:'walk', dwell:0, phase:0, said:false, gy:24};
+    }
+    const pz=SPEC.pizza;
+    if (pz.state==='walk'){
+      pz.x+=pz.dir*92*dt; pz.phase+=dt*2.6;
+      if (pz.dir===-1 && pz.x<=pz.target){
+        pz.state='dwell'; pz.dwell=6.5;
+        if (!pz.said && CAM.z>0.5){
+          pz.said=true;
+          const roster=WORLD.houses.find(h=>Math.abs(h.x+52-pz.target)<2);
+          const someone=roster?PEOPLE[roster.roster[Math.floor(hash01(d.dayAbs,89)*roster.roster.length)]]:null;
+          sayAt('ROW', pz.x, -34-52,
+            someone? 'Two larges, one ranch. Evenin’, '+someone.name+'.' : 'Two larges, one ranch. I know the way.',
+            {dur:4});
+        }
+      }
+      if (pz.x<320) SPEC.pizza.done=true;
+    } else {
+      pz.dwell-=dt;
+      if (pz.dwell<=0) pz.state='walk';
+    }
+  } else SPEC.pizza=null;
+  // the hooded figure: Thursday midnight to four. do not wave.
+  if (dowEff===3 && hrW>=24.3 && hrW<28.3){
+    if (!SPEC.hooded || SPEC.hooded.day!==d.dayAbs){
+      SPEC.hooded={day:d.dayAbs, x:4560, phase:0};
+    }
+    SPEC.hooded.x-=21*dt;
+    SPEC.hooded.phase+=dt;
+    if (SPEC.hooded.x<380) SPEC.hooded=null;
+  } else SPEC.hooded=null;
+  // the ladder. don't ask.
+  if (GAGS.ladderPid>=0 && hrW>=9 && hrW<23){
+    const blk=heroBlock()+d.dayAbs*6;
+    if (hash01(d.dayAbs, heroBlock(), 501)<0.3){
+      if (!SPEC.ladder || SPEC.ladder.blk!==blk){
+        SPEC.ladder={blk, x:blk%2?4640:360, dir:blk%2?-1:1, phase:0, gy:24, done:false};
+      }
+      const ld=SPEC.ladder;
+      if (!ld.done){
+        ld.x+=ld.dir*58*dt; ld.phase+=dt*2.1;
+        if (ld.x<330||ld.x>4670) ld.done=true;
+      }
+    }
+  }
+  // cadets: check retirement
+  if (ACTS.cadets && rt-ACTS.cadets.t0>110) ACTS.cadets=null;
+}
+function drawSpecials(ctx, rt){
+  const band=BAND.ROW, gy=groundY(band);
+  const d=CLOCK.derive();
+  const hrW=d.hour<6?d.hour+24:d.hour;
+  // pizza oracle
+  if (SPEC.pizza && !SPEC.pizza.done){
+    const pz=SPEC.pizza;
+    const sx=projX(band, pz.x);
+    if (sx>-60 && sx<view.w+60){
+      const p=PEOPLE[GAGS.pizzaPid]||{};
+      const fig={x:pz.x, dir:pz.dir, phase:pz.state==='walk'?pz.phase:0, gy:24,
+        polo:'#c0392b', skin:p.skin||SKINS[1], hair:p.hair||HAIRS[2], hat:true, female:false, id:777};
+      ctx.save();
+      ctx.translate(sx, gy+24*CAM.z);
+      ctx.scale(CAM.z, CAM.z);
+      drawFigure(ctx, fig, rt);
+      // the insulated bag, held flat like scripture
+      ctx.fillStyle='#8a2a1a';
+      ctx.fillRect(pz.dir*6-8, -30, 16, 6);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.1;
+      ctx.strokeRect(pz.dir*6-8, -30, 16, 6);
+      ctx.restore();
+      if (PEOPLE[GAGS.pizzaPid]) HIT.push({pid:GAGS.pizzaPid, sx, sy:gy+24*CAM.z-46*CAM.z});
+    }
+  }
+  // hooded figure
+  if (SPEC.hooded){
+    const sx=projX(band, SPEC.hooded.x);
+    if (sx>-60 && sx<view.w+60){
+      const bob=Math.sin(SPEC.hooded.phase*1.8)*1.2;
+      ctx.save();
+      ctx.translate(sx, gy+24*CAM.z);
+      ctx.scale(CAM.z, CAM.z);
+      ctx.translate(0,-bob);
+      ctx.fillStyle='#1d1a20';
+      ctx.beginPath();
+      ctx.moveTo(-9,0); ctx.lineTo(9,0); ctx.lineTo(6,-34); ctx.lineTo(-6,-34); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.arc(0,-40,8.4,0,7); ctx.fill();
+      ctx.strokeStyle='rgba(20,16,24,0.9)'; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.arc(0,-40,8.4,0,7); ctx.stroke();
+      // the hood holds only darkness
+      ctx.fillStyle='#0c0a10';
+      ctx.beginPath(); ctx.ellipse(2,-39,4.4,5.4,0,0,7); ctx.fill();
+      ctx.restore();
+    }
+  }
+  // the ladder truther
+  if (SPEC.ladder && !SPEC.ladder.done && hrW>=9 && hrW<23){
+    const ld=SPEC.ladder;
+    const sx=projX(band, ld.x);
+    if (sx>-80 && sx<view.w+80){
+      const p=PEOPLE[GAGS.ladderPid];
+      const fig={x:ld.x, dir:ld.dir, phase:ld.phase, gy:24,
+        polo:p?p.polo:'#9fc4d8', skin:p?p.skin:SKINS[0], hair:p?p.hair:HAIRS[0], hat:false, female:false, id:778};
+      ctx.save();
+      ctx.translate(sx, gy+24*CAM.z);
+      ctx.scale(CAM.z, CAM.z);
+      drawFigure(ctx, fig, rt);
+      // the ladder itself, under one arm, explanation pending since 2001
+      ctx.save();
+      ctx.scale(ld.dir,1);
+      ctx.strokeStyle='#8a6a4a'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(-26,-24); ctx.lineTo(30,-30); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-26,-19); ctx.lineTo(30,-25); ctx.stroke();
+      ctx.lineWidth=1.3;
+      for (let i=0;i<7;i++){
+        const t=i/6, lx=lerp(-24,28,t);
+        ctx.beginPath(); ctx.moveTo(lx, -24+t*-0.7-0); ctx.lineTo(lx, -19+t*-0.7-0.2); ctx.stroke();
+      }
+      ctx.restore();
+      ctx.restore();
+      if (p) HIT.push({pid:p.pid, sx, sy:gy+24*CAM.z-46*CAM.z});
+    }
+  }
+}
+
+// ---- weather: rain (an act, and eventually a season) ---------------------------
+function drawRain(ctx, rt){
+  const d=CLOCK.derive();
+  if (ACTS.rainDay!==d.dayAbs) return;
+  ctx.save();
+  ctx.fillStyle='rgba(90,100,115,0.18)';
+  ctx.fillRect(0,0,view.w,view.h);
+  // a proper cloud deck — no sunny-day rain
+  const cd=ctx.createLinearGradient(0,0,0,view.h*0.55);
+  cd.addColorStop(0,'rgba(108,116,130,0.85)');
+  cd.addColorStop(0.6,'rgba(120,128,142,0.4)');
+  cd.addColorStop(1,'rgba(130,138,150,0)');
+  ctx.fillStyle=cd; ctx.fillRect(0,0,view.w,view.h*0.55);
+  ctx.strokeStyle='rgba(200,215,228,0.4)'; ctx.lineWidth=1.2; ctx.lineCap='round';
+  const n=90;
+  for (let i=0;i<n;i++){
+    const spd=560+hash01(i,1)*220;
+    const px=((hash01(i,2)*view.w*1.3) - ((rt*spd*0.16)% (view.w*1.3)) + view.w*1.3)%(view.w*1.3) - view.w*0.15;
+    const py=((hash01(i,3)*view.h) + rt*spd*0.5) % view.h;
+    ctx.beginPath();
+    ctx.moveTo(px,py); ctx.lineTo(px-3,py+11); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ---- hero dollhouse room plates (little museum tags, not floating text) -------
+function heroRoomPlates(ctx){
+  if (CAM.z<=1.7) return;
+  ctx.save();
+  ctx.font='italic 6px Georgia, serif';
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  for (const r of HERO.rooms){
+    if (r.outdoor && r.id!=='roof') continue;
+    const tw=ctx.measureText(r.name).width;
+    const px=r.x+3;
+    const py=(r.id==='roof') ? r.floorY-11 : r.floorY-r.h+3;
+    ctx.fillStyle='rgba(244,234,214,0.92)';
+    ctx.fillRect(px, py, tw+8, 9.5);
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=0.8;
+    ctx.strokeRect(px, py, tw+8, 9.5);
+    ctx.fillStyle=PAL.ink;
+    ctx.fillText(r.name, px+4, py+7.2);
+  }
+  ctx.restore();
+}
+
+// ---- the composite viewer (click the frame in the chapter room) ----------------
+const COMP={wrap:null, cv:null, down:null};
+function compInit(){
+  const wrap=document.createElement('div');
+  wrap.id='compwrap';
+  const frame=document.createElement('div');
+  frame.id='compframe';
+  const cv=document.createElement('canvas');
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  cv.width=680*dpr; cv.height=470*dpr;
+  cv.style.width='680px'; cv.style.height='470px';
+  frame.appendChild(cv); wrap.appendChild(frame); document.body.appendChild(wrap);
+  COMP.wrap=wrap; COMP.cv=cv;
+  wrap.onclick=()=>{ wrap.style.display='none'; };
+  // click the composite prop to open
+  const c=document.getElementById('c');
+  c.addEventListener('pointerdown', e=>{ COMP.down=[e.clientX,e.clientY,performance.now()]; });
+  c.addEventListener('pointerup', e=>{
+    if (!COMP.down) return;
+    const [dx,dy,dt0]=COMP.down; COMP.down=null;
+    if (Math.hypot(e.clientX-dx, e.clientY-dy)>7 || performance.now()-dt0>450) return;
+    if (HERO.openT<0.55) return;
+    const L=HERO.h.x-150;
+    const band=BAND.ROW;
+    const x0=projX(band, L+136-17), x1=projX(band, L+136+17);
+    const gy=groundY(band);
+    const y0=gy+(-94-36)*CAM.z, y1=gy+(-94-8)*CAM.z;
+    if (e.clientX>=x0 && e.clientX<=x1 && e.clientY>=y0 && e.clientY<=y1){
+      drawComposite();
+      COMP.wrap.style.display='flex';
+    }
+  });
+}
+function drawComposite(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  const g=COMP.cv.getContext('2d');
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,680,470);
+  g.fillStyle='#f4ead6'; g.fillRect(0,0,680,470);
+  const d=CLOCK.derive();
+  const yr=seedBaseYear()+d.year;
+  g.fillStyle=PAL.ink; g.textAlign='center';
+  g.font='bold 22px Georgia'; g.fillText('ΓΔ', 340, 34);
+  g.font='13px Georgia'; g.fillText('GAMMA DELTA · COLONNADE COLLEGE · '+yr+'–'+(yr+1), 340, 52);
+  g.font='italic 11px Georgia'; g.fillStyle='#6b5a49';
+  g.fillText('“entertain ourselves first”', 340, 67);
+  const roster=HERO.h.roster.map(pid=>PEOPLE[pid]);
+  const cols=7, cw=680/cols, rh=86, oy=84;
+  roster.forEach((p,i)=>{
+    const cx=(i%cols)*cw+cw/2, cy=oy+Math.floor(i/cols)*rh;
+    drawPortrait(g, p, cx, cy+22, 16);
+    g.fillStyle=PAL.ink; g.font='bold 8.5px Georgia';
+    g.fillText(p.name+' '+classTag(p), cx, cy+50);
+    if (p.tag){ g.font='italic 7px Georgia'; g.fillStyle='#6b5a49';
+      const kf=TAG_KNOWN[p.tag]||'';
+      g.fillText(kf.length>26?kf.slice(0,25)+'…':kf, cx, cy+60); }
+  });
+  // the cook, honored center-bottom, larger — as is right
+  if (HERO.h.cook){
+    const ck=HERO.h.cook;
+    drawPortrait(g, ck, 340, 428, 20);
+    g.fillStyle=PAL.ink; g.font='bold 10px Georgia';
+    g.fillText(ck.full, 340, 462);
+    g.font='italic 8px Georgia'; g.fillStyle='#6b5a49';
+    g.fillText('our kitchen · our compass', 340, 471-2);
+  }
+  g.textAlign='left';
+}
+function drawPortrait(g, p, cx, cy, r){
+  g.save();
+  g.beginPath(); g.ellipse(cx,cy,r+6,r+8,0,0,7);
+  g.fillStyle='#efe7d2'; g.fill();
+  g.strokeStyle='#8a7862'; g.lineWidth=1; g.stroke();
+  g.fillStyle=p.skin;
+  g.beginPath(); g.arc(cx,cy,r,0,7); g.fill();
+  g.strokeStyle=PAL.ink; g.lineWidth=1.6; g.stroke();
+  g.fillStyle=p.hair;
+  if (p.kind==='COOK'){
+    if (p.first.startsWith('Miss')){
+      g.beginPath(); g.arc(cx,cy-3,r*0.98,Math.PI*0.9,Math.PI*0.1); g.fill();
+    } else {
+      g.beginPath(); g.arc(cx,cy-r*0.4,r*0.9,Math.PI*1.05,Math.PI*-0.05); g.fill();
+    }
+  } else if (p.female){
+    g.beginPath(); g.arc(cx,cy-3,r*0.98,Math.PI*0.9,Math.PI*0.1); g.fill();
+    g.fillRect(cx-r-2, cy-3, 4, r+4);
+  } else {
+    g.beginPath(); g.arc(cx,cy-r*0.35,r*0.94,Math.PI*0.95,Math.PI*0.05); g.fill();
+  }
+  // cel eyes + the smile — the composite photographer said “gentlemen, smile,” once
+  for (const s of [-1,1]){
+    g.fillStyle='#fff';
+    g.beginPath(); g.ellipse(cx+s*r*0.36, cy-r*0.08, r*0.2, r*0.24, 0, 0, 7); g.fill();
+    g.strokeStyle=PAL.ink; g.lineWidth=0.9; g.stroke();
+    g.fillStyle=PAL.ink;
+    g.beginPath(); g.arc(cx+s*r*0.36+0.6, cy-r*0.05, r*0.09, 0, 7); g.fill();
+  }
+  g.strokeStyle=PAL.ink; g.lineWidth=1.1;
+  g.beginPath(); g.arc(cx, cy+r*0.3, r*0.32, 0.4, 2.7); g.stroke();
+  // blazer shoulders
+  g.fillStyle=p.kind==='COOK'?'#e8e2d2':'#2e3a4e';
+  g.beginPath(); g.moveTo(cx-r-4,cy+r+8); g.quadraticCurveTo(cx,cy+r*0.5,cx+r+4,cy+r+8); g.closePath(); g.fill();
+  g.restore();
+}
+
+// ---- P4 vignettes ----------------------------------------------------------
+VIGS.push(
+ // basement
+ { id:'kegmath', room:'bar', when:[15,19], dows:[4], wt:2.6, cast:[
+    {pose:'stand',dx:-104,face:1},{pose:'stand',dx:-76,face:-1}],
+   props:[['whiteboard',-116,-4,0]],
+   script:[
+    {at:5,ci:0,t:['Forty guys, four hours, carry the two… three kegs.','The math says three kegs. The heart says four.']},
+    {at:16,ci:1,t:['Round up. Always round up.','Last time the math was wrong we wrote a song about it.']} ]},
+ { id:'beirut', room:'bar', when:[19,25], wt:1.2, cast:[
+    {pose:'pongThrow',dx:-62},{pose:'pongReady',dx:62,face:-1}],
+   script:[
+    {at:6,ci:1,t:['It’s called Beirut where I’m from.','In Connecticut we call this Beirut.']},
+    {at:15,ci:0,t:['You’re from HERE, Preston.','This is pong. This has always been pong.']} ]},
+ // TV room
+ { id:'risk', room:'tv', when:[20,26], dows:[5], wt:2.2, cast:[
+    {tag:'movieNerd',pose:'sit',dx:-70,face:1},{pose:'sit',dx:-40,face:-1},{pose:'sit',dx:-12,face:-1}],
+   props:[['pokerTable',-40,0,0]],
+   script:[
+    {at:5,ci:0,t:['Kamchatka holds. Kamchatka always holds.','We said no alliances. You SAID that while allying.']},
+    {at:16,ci:1,t:['Australia is a fortress and you know it.','I will remember this in the spring, Wells.']},
+    {at:26,ci:2,t:['This is why we can’t have nice continents.','(quietly moving armies while they argue)']} ]},
+ { id:'draftday', room:'tv', when:[15,18.5], dows:[6], wt:1.8, cast:[
+    {tag:'pokerShark',pose:'sit',dx:-66,face:1},{pose:'couch',dx:-38,face:1},{pose:'sit',dx:-10,face:-1}],
+   script:[
+    {at:5,ci:0,t:['With the first pick: Faulk. Obviously.','The board is set. No trades after the third snack.']},
+    {at:15,ci:1,t:['He brought three binders. THREE.','League fee funds the trophy. The trophy is from Goodwill.']},
+    {at:25,ci:2,t:['My kicker won me the title and none of the respect.','Autodraft is a lifestyle choice.']} ]},
+ // kitchen
+ { id:'waffleplan', room:'kitchen', when:[26.2,28], wt:2.2, cast:[
+    {pose:'stand',dx:44,face:-1},{tag:'cerealMonk',pose:'stand',dx:74,face:-1}],
+   script:[
+    {at:4,ci:0,t:['WAFFLE RUN. Doors in four minutes.','Order in four minutes or forever hold your peace.']},
+    {at:13,ci:1,t:['Scattered, smothered, and we’ll figure the rest en route.','I’m coming. Standing is the first step.']} ]},
+ { id:'fridayfish', room:'kitchen', when:[10.5,13.5], dows:[4], wt:4, cook:true, cast:[
+    {cook:true,pose:'cookPose',dx:36,face:-1},{pose:'stand',dx:70,face:-1}],
+   script:[
+    {at:4,ci:0,t:['It’s Friday, baby. Fish day. Doubters eat last.','This recipe is older than your fraternity, baby.']},
+    {at:15,ci:1,t:['Yes ma’am. (the whole kitchen, in chorus)','Best day of the week and it’s not close.']} ]},
+ // bedroom
+ { id:'bowtie', room:'bedA', when:[18.4,20.4], dows:[5], wt:2.6, cast:[
+    {pose:'stand',dx:20,face:1},{pose:'couch',dx:-30,face:1}],
+   script:[
+    {at:5,ci:0,t:['Step four of the tutorial is “confidence.”','Dad tied it once in ’96 and refused to explain.']},
+    {at:15,ci:1,t:['It looks like a propeller.','It IS a propeller. A confident one.']} ]},
+ { id:'burncd', room:'bedA', when:[20,24.5], wt:1.4, cast:[{tag:'aimGhost',pose:'desk',dx:38,face:1}],
+   script:[
+    {at:6,ci:0,t:['ROAD TRIP VOL. 3. No skips. A statement.','Track seven will change his life. He isn’t ready.'],think:true},
+    {at:18,ci:0,t:['burn speed 4x. patience is part of the art.','the Sharpie hovers. the title must be PERFECT.'],think:true} ]},
+ // chapter room
+ { id:'djvote', room:'chapter', when:[19,20.6], dows:[0], wt:3, cast:[
+    {pose:'stand',dx:12,face:1},{pose:'sit',dx:36,face:-1}],
+   script:[
+    {at:4,ci:0,t:['Motion to hire a DJ. Just once. To see.','Reading the minutes: 41 consecutive DJ votes. 41 nos.','This year the motion comes with a PowerPoint. It dies anyway.']},
+    {at:15,ci:1,t:['The minutes read: “no.” The minutes always read “no.”','Evenflow abides. Motion dies by acclamation.']} ]},
+ { id:'crushbox', room:'chapter', when:[19,21], dows:[2], wt:2, cast:[
+    {pose:'stand',dx:14,face:1},{pose:'stand',dx:38,face:-1}],
+   script:[
+    {at:5,ci:0,t:['The crush party box is anonymous, gentlemen.','(it is not anonymous. it has never been anonymous.)']},
+    {at:16,ci:1,t:['Whoever nominated the cook: correct, but no.','Someone wrote in “the porch couch.” Approved.']} ]},
+ { id:'dues', room:'chapter', when:[18,19], dows:[0], wt:1.4, cast:[
+    {tag:'pokerShark',pose:'stand',dx:12,face:1},{pose:'sit',dx:36,face:-1}],
+   script:[
+    {at:5,ci:0,t:['Dues. The word of the day is dues.','The treasury is a concept. Make it a fact.']},
+    {at:15,ci:1,t:['My dad says the check is— (it’s not, Tripp.)','Can I pay in kegs? (…continue.)']} ]},
+ // tapestry room
+ { id:'setlist', room:'tapes', when:[15,20], wt:1.4, cast:[{tag:'tapehead',pose:'read',dx:20}],
+   script:[
+    {at:6,ci:0,t:['8/24/02. Set two opener. Write it EXACTLY.','The Sharpie must not smudge. The Sharpie is history.'],think:true} ]},
+ { id:'pilgrimage', room:'tapes', when:[17,20], dows:[3,4], wt:1.8, cast:[
+    {tag:'noodler',pose:'stand',dx:-8,face:1},{tag:'tapehead',pose:'beanbagSit',dx:38}],
+   script:[
+    {at:5,ci:0,t:['Oak Mountain run. Back Tuesday-ish.','The van leaves at dawn. The van waits for no man.']},
+    {at:16,ci:1,t:['Tell my professors… something believable.','Bring the good cooler. And the okay cooler.']} ]},
+ // roof
+ { id:'dawnpatrol', room:'roof', when:[6.4,8.6], dows:[6], wt:2.6, cast:[
+    {pose:'sit',dx:-30,face:1},{pose:'sit',dx:14,face:-1}],
+   script:[
+    {at:5,ci:0,t:['Nobody up but us and the birds. As intended.','First light on House Mountain. Free of charge.']},
+    {at:16,ci:1,t:['Should we wake the others? (no.)','Coffee’s terrible. Views’s free. Balance.']} ]},
+ { id:'exameve', room:'roof', when:[22,24.4], dows:[0,1,2], wt:1.2, cast:[
+    {pose:'sit',dx:-30,face:1},{pose:'sit',dx:14,face:-1}],
+   script:[
+    {at:5,ci:0,t:['Self-scheduled my final for 8 AM. A choice.','The Honor System trusts me. Bold of it.']},
+    {at:16,ci:1,t:['Clear eyes. C-plus. Can’t lose.','You’ll walk in alone, no proctor, and somehow that’s scarier.']} ]},
+ // porch
+ { id:'dryweek', room:'porch', when:[10,26], wt:9, flag:'strike', cast:[
+    {tag:'porchFixture',pose:'couch',dx:110,face:-1},{pose:'couch',dx:132,face:-1}],
+   script:[
+    {at:5,ci:0,t:['Dry week, gentlemen. The couch understands.','The letter says “reflect.” We are reflecting SO hard.']},
+    {at:16,ci:1,t:['Evenflow rescheduled. The amps mourn.','Day three. The lemonade is getting reckless.']},
+    {at:27,ci:0,t:['(the basement lights are off. a moment of silence.)','We’ve learned so much. (have we?) So much.']} ]},
+ { id:'cupidporch', room:'porch', when:[17,23.5], wt:8, flag:'cupid', cast:[
+    {pose:'couch',dx:104,face:-1},{pose:'couch',dx:126,face:-1}],
+   script:[
+    {at:5,ci:0,t:['So… the porch couch has history.','I saved you the good cushion. It’s a whole thing.']},
+    {at:16,ci:1,t:['Formal? I mean— yes. Obviously. Yes.','Your porch has better gossip than our porch.']},
+    {at:27,ci:0,t:['(the entire house is watching from the windows)','Ignore the guys at the window. They’re… birdwatching.']} ]},
+ { id:'rockers', room:'porch', when:[9.5,12.5], dows:[5], wt:2, cast:[
+    {pose:'sit',dx:-96,face:1},{pose:'sit',dx:-72,face:-1}],
+   script:[
+    {at:5,ci:0,t:['Seniors get the rockers. It’s in the bylaws.','We built nothing. We inherited everything. Thriving.']},
+    {at:16,ci:1,t:['Freshmen keep waving. Power.','Four years of research says: this porch, this hour.']} ]},
+ // lawn & driveway
+ { id:'hackysack', room:'lawn', when:[14,18], wt:1.6, cast:[
+    {tag:'noodler',pose:'dance',dx:-34,face:1},{tag:'tapehead',pose:'dance',dx:0,face:-1},{pose:'dance',dx:32,face:-1}],
+   script:[
+    {at:6,ci:0,t:['(the circle must not break)','Four hits! A house record!'],think:false},
+    {at:17,ci:1,t:['Heel. HEEL. Oh no.','The sack respects calm energy, man.']} ]},
+ { id:'wiffle', room:'lawn', when:[13,16.5], dows:[5,6], wt:2, cast:[
+    {pose:'pongThrow',dx:-44,face:1},{pose:'stand',dx:36,face:-1}],
+   script:[
+    {at:6,ci:0,t:['Ghost runner on second. GHOST RUNNER ON SECOND.','The tree is a home run AND an outfielder.']},
+    {at:17,ci:1,t:['That curveball is illegal in four states.','Off the porch: double. Off Craig: single.']} ]},
+ { id:'camo', room:'lawn', when:[15,18], dows:[4], wt:1.6, cast:[
+    {pose:'stand',dx:-36,face:1},{pose:'stand',dx:2,face:-1}],
+   script:[
+    {at:6,ci:0,t:['Gone huntin’. Back Sunday.','Camo bag’s by the door. Has been since Tuesday.']},
+    {at:17,ci:1,t:['If the big one calls the house phone, I’m out of office.','Bring back something with antlers or an apology.']} ]},
+ { id:'dunk', room:'hoop', when:[15,18], dows:[6], wt:1.8, cast:[
+    {tag:'horseChamp',pose:'pongThrow',dx:-20,face:1},{pose:'stand',dx:16,face:-1}],
+   script:[
+    {at:6,ci:0,t:['The rim is nine feet. The dream is ten.','Off the porch, nothing but net. Call it.']},
+    {at:17,ci:1,t:['Your vertical is a rumor.','H-O-R-S. As usual. As always.']} ]}
+);
+
+// per-archetype porch life — every house sounds like itself
+const PORCH_SETS={
+  RD:[
+    { poses:['couch','couch'], dx:[104,128], lines:['The cone stays. The cone earned it.','REVOLUTION! (nobody knows why he yells it)','The couch has survived three fires. Champion.'] },
+    { poses:['drink','talk'], dx:[-96,-70], lines:['Rules are a suggestion with paperwork.','We gave the goat BACK. Technically.'] },
+    { poses:['pongThrow','pongReady'], dx:[96,126], lines:['Lawn pong. Wind rules in effect.','The table is warped. The table is PERFECT.'] },
+  ],
+  SS:[
+    { poses:['sit','sit'], dx:[104,126], lines:['Gentlemen.','A modest evening. As planned.','The Journal ran late today. Troubling.'] },
+    { poses:['talk','stand'], dx:[-92,-70], lines:['Seersucker season opens when I say it opens.','Your father called. All is well. He sends regards.'] },
+    { poses:['read','sit'], dx:[100,124], lines:['(reading the print edition, pointedly)','A cigar is a commitment, pledge.'] },
+  ],
+  PO:[
+    { poses:['stand','talk'], dx:[-90,-68], lines:['The DJ arrives at nine. The fog machine at eight.','The guest list is a living document.','This shirt? Milan. Well— the mall. Milan energy.'] },
+    { poses:['couch','drink'], dx:[104,128], lines:['Hair check. Hair’s good. We’re good.','Someone dim the porch light. Ambience.'] },
+  ],
+  TK:[
+    { poses:['stand','drink'], dx:[-92,-66], lines:['Already ran eight. Feeling okay about it.','Protein is a food group. The main one.','Erg at dawn. The river fears us.'] },
+    { poses:['talk','stand'], dx:[96,122], lines:['Coach says rest. Coach isn’t here.','We benched the couch. For form.'] },
+  ],
+};
+const PRANK_PORCH=[
+  { poses:['stand','stand'], dx:[-92,-64], lines:['Forty flamingos. FORTY.','The sign says FOR SALE. We are NOT for sale.','This means war. Organized, hilarious war.'] },
+];
 
 /*==APPEND==*/
 boot();
