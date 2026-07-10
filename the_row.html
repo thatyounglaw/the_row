@@ -1165,9 +1165,12 @@ function dogTick(dt){
   if (DOG.x>4560) DOG.dir=-1;
 }
 function drawDog(ctx){
+  if (HERO.openT>0.85) return;
   const band=BAND.ROW, gy=groundY(band);
   const sx=projX(band, DOG.x);
   if (sx<-40||sx>view.w+40) return;
+  ctx.save();
+  ctx.globalAlpha=clamp(1-HERO.openT*1.15,0,1);
   ctx.save();
   ctx.translate(sx, gy+26*CAM.z);
   ctx.scale(CAM.z*DOG.dir, CAM.z);
@@ -1187,6 +1190,7 @@ function drawDog(ctx){
   ctx.beginPath(); ctx.ellipse(0,-9,11,6,0,0,7); ctx.stroke();
   ctx.fillStyle=PAL.ink;
   ctx.beginPath(); ctx.arc(14.5,-13.5,0.9,0,7); ctx.fill();        // nose
+  ctx.restore();
   ctx.restore();
 }
 function figTick(dt, rt){
@@ -1210,7 +1214,10 @@ function figTick(dt, rt){
   }
 }
 function drawFigures(ctx, rt){
+  if (HERO.openT>0.85) return;   // the sidewalk is buried under the cross-section
   const band=BAND.ROW, gy=groundY(band);
+  ctx.save();
+  ctx.globalAlpha=clamp(1-HERO.openT*1.15,0,1);
   for (const f of FIGS){
     const sx=projX(band, f.x);
     if (sx<-60||sx>view.w+60) continue;
@@ -1220,8 +1227,10 @@ function drawFigures(ctx, rt){
     drawFigure(ctx, f, rt);
     ctx.restore();
   }
+  ctx.restore();
 }
 function drawBubbles(ctx){
+  if (HERO.openT>0.5){ BUBBLES.length=0; return; }   // no heys from buried sidewalks
   const now=performance.now()/1000;
   const band=BAND.ROW, gy=groundY(band);
   for (let i=BUBBLES.length-1;i>=0;i--){
@@ -1825,6 +1834,7 @@ function sayAt(band, wx, wy, txt, opts){
 }
 function drawWorldBubbles(ctx){
   const now=performance.now()/1000;
+  const placed=[];
   for (let i=WBUB.length-1;i>=0;i--){
     const b=WBUB[i];
     const age=now-b.t0;
@@ -1840,7 +1850,13 @@ function drawWorldBubbles(ctx){
     const lines=wrapText(ctx, b.txt, 240);
     const bw=Math.max(...lines.map(l=>ctx.measureText(l).width))+20;
     const bh=lines.length*16+11;
-    const bx=clamp(sx-bw/2, 8, view.w-bw-8), by=sy-bh-14;
+    const bx=clamp(sx-bw/2, 8, view.w-bw-8);
+    let by=sy-bh-14;
+    // bubbles stack instead of colliding
+    for (const r of placed){
+      if (bx<r.x+r.w+6 && bx+bw>r.x-6 && by<r.y+r.h+4 && by+bh>r.y-4) by=r.y-bh-10;
+    }
+    placed.push({x:bx,y:by,w:bw,h:bh});
     ctx.fillStyle='rgba(255,255,255,0.97)';
     ctx.strokeStyle=PAL.ink; ctx.lineWidth=2.2; ctx.lineJoin='round';
     ctx.beginPath();
@@ -2104,20 +2120,62 @@ function heroRooms(hx){
       props:[ ['cooler',hx-6,-140,0] ] },
     // exterior stages (always alive, even from the street)
     { id:'porch',   name:'the porch',     x:L-8,   y:-96,  w:W+16, h:70,  floorY:-26, outdoor:true, props:[] },
-    { id:'lawn',    name:'the lawn',      x:L-90,  y:-56,  w:120,  h:56,  floorY:0,   outdoor:true, props:[] },
+    { id:'lawn',    name:'the lawn',      x:L-170, y:-56,  w:120,  h:56,  floorY:0,   outdoor:true, props:[] },
     { id:'hoop',    name:'the driveway',  x:hx+150,y:-56,  w:110,  h:56,  floorY:0,   outdoor:true, props:[] },
   ];
 }
 function drawHeroShell(ctx, t){
   const h=HERO.h, hx=h.x, W=300, L=hx-W/2;
-  // earth cut for the basement
-  ctx.fillStyle='#5a4a3a';
-  ctx.beginPath();
-  ctx.moveTo(L-26,0);
-  ctx.quadraticCurveTo(L-18,40,L-4,62);
-  ctx.lineTo(hx+W/2+4,62);
-  ctx.quadraticCurveTo(hx+W/2+18,40,hx+W/2+26,0);
-  ctx.closePath(); ctx.fill();
+  // ---- the earth cross-section -------------------------------------------
+  // A full-width cut into the ground, so the basement reads as UNDERGROUND
+  // instead of a ground floor sitting on the street. Fades in with the
+  // cutaway; the street and everything on it is buried behind it.
+  {
+    const span=view.w*0.5/Math.max(0.4,CAM.z)+120;
+    const eL=hx-span, eW=span*2;
+    const deep=Math.max(96,(view.h-groundY(BAND.ROW))/Math.max(0.4,CAM.z)+30);
+    ctx.save();
+    ctx.globalAlpha=Math.min(1,HERO.openT*1.4);
+    ctx.fillStyle='#4e3d2e';
+    ctx.fillRect(eL, 8, eW, deep);
+    ctx.fillStyle='#443426';
+    ctx.fillRect(eL, 54, eW, deep-46);
+    // wavy strata
+    ctx.strokeStyle='rgba(30,22,14,0.3)'; ctx.lineWidth=1.8;
+    for (const sy of [30, 66]){
+      ctx.beginPath();
+      for (let x=eL;x<=eL+eW;x+=34) ctx.lineTo(x, sy+vnoise(x*0.02, sy)*7);
+      ctx.stroke();
+    }
+    // pebbles
+    for (let i=0;i<30;i++){
+      const px=eL+hash01(i,61)*eW, py=16+hash01(i,62)*(deep-30);
+      ctx.fillStyle=i%3?'#5f4c39':'#3a2c20';
+      ctx.beginPath(); ctx.ellipse(px,py,2.4+hash01(i,63)*2.6,1.8+hash01(i,64)*1.6,0,0,7); ctx.fill();
+    }
+    // the water line, dutifully serving the basement
+    ctx.strokeStyle='#78828a'; ctx.lineWidth=4; ctx.lineCap='butt';
+    ctx.beginPath(); ctx.moveTo(eL, 46); ctx.lineTo(L-6, 46); ctx.stroke();
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(eL,44); ctx.lineTo(L-6,44); ctx.moveTo(eL,48); ctx.lineTo(L-6,48); ctx.stroke();
+    // the pledge class of '74 buried something. nobody remembers what.
+    if (CAM.z>1.7){
+      ctx.save(); ctx.translate(hx-262, 76); ctx.rotate(-0.06);
+      ctx.fillStyle='#8a7a5a'; ctx.fillRect(-9,-6,18,12);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=0.9; ctx.strokeRect(-9,-6,18,12);
+      ctx.fillStyle='#f4ead6'; ctx.font='bold 4px Georgia'; ctx.textAlign='center';
+      ctx.fillText('ΓΔ ’74', 0, 1.4); ctx.textAlign='left';
+      ctx.restore();
+    }
+    // grass lip over the cut
+    ctx.fillStyle=PAL.lawn;
+    ctx.fillRect(eL, 2, eW, 8);
+    ctx.fillStyle=PAL.lawnShade;
+    ctx.fillRect(eL, 8, eW, 2.4);
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.moveTo(eL,2); ctx.lineTo(eL+eW,2); ctx.stroke();
+    ctx.restore();
+  }
   // solid interior backdrop — the dollhouse never shows lawn through its bones
   ctx.fillStyle='#9c8570';
   ctx.fillRect(L-4,-208,W+8,270);
@@ -2129,13 +2187,54 @@ function drawHeroShell(ctx, t){
   washPoly(ctx, [[L-18,-200],[L+58,-244],[hx+W/2-58,-244],[hx+W/2+18,-200]], PAL.roofDark, 771);
   wob(ctx, [[L-18,-200],[L+58,-244],[hx+W/2-58,-244],[hx+W/2+18,-200],[L-18,-200]], 772, {w:1.8});
   // rooms
+  const BACKWIN={ tv:{wx:-108,cur:'#5f7355'}, kitchen:{wx:108,cur:'#b8875a'},
+    bedA:{wx:-108,cur:'#5a6a8a'}, tapes:{wx:108,cur:'#8a3a5a'} };
+  const nightF=glowAlpha(CLOCK.hourFloat()%24);
   for (const r of HERO.rooms){
     if (r.outdoor) continue;
     washRect(ctx, r.x, r.floorY-r.h, r.w, r.h, shade(r.wall,1.14), 810+r.x, {inset:0.8});
-    // floor slab
+    // back-wall window — the far side of the house, sky through the glass
+    const bw=BACKWIN[r.id];
+    if (bw){
+      const wx=hx+bw.wx, cy=r.floorY-r.h*0.45;
+      ctx.fillStyle='#e6dcc4'; ctx.fillRect(wx-19, cy-24, 38, 48);
+      ctx.fillStyle=hexLerp('#cfe0e8','#252c4a', nightF);
+      ctx.fillRect(wx-15, cy-20, 30, 40);
+      ctx.strokeStyle='rgba(244,234,214,0.6)'; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(wx,cy-19); ctx.lineTo(wx,cy+19);
+      ctx.moveTo(wx-14,cy); ctx.lineTo(wx+14,cy); ctx.stroke();
+      wobRect(ctx, wx-19, cy-24, 38, 48, 812+r.x, {w:1.2});
+      // curtains
+      ctx.fillStyle=bw.cur;
+      ctx.fillRect(wx-19, cy-24, 7, 48); ctx.fillRect(wx+12, cy-24, 7, 48);
+      ctx.strokeStyle='rgba(30,20,14,0.3)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(wx-15.5,cy-22); ctx.lineTo(wx-15.5,cy+22);
+      ctx.moveTo(wx+15.5,cy-22); ctx.lineTo(wx+15.5,cy+22); ctx.stroke();
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(wx-22,cy-25); ctx.lineTo(wx+22,cy-25); ctx.stroke();
+    }
+    // baseboard
+    ctx.fillStyle=shade(r.wall,0.78);
+    ctx.fillRect(r.x, r.floorY-4, r.w, 4);
+    // ceiling fixture: a bare bulb in the basement, modest domes upstairs
+    const fx=r.x+r.w*0.5, fy0=r.floorY-r.h;
+    if (r.id==='bar'){
+      ctx.strokeStyle='#3a3430'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(fx,fy0); ctx.lineTo(fx,fy0+9); ctx.stroke();
+      ctx.fillStyle=nightF>0.1?'#ffe9a8':'#d8d2c2';
+      ctx.beginPath(); ctx.arc(fx,fy0+11.5,2.8,0,7); ctx.fill();
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=0.9; ctx.stroke();
+    } else if (r.id!=='chapter'){
+      ctx.fillStyle=nightF>0.1?'#ffe9a8':'#e6dcc4';
+      ctx.beginPath(); ctx.arc(fx,fy0+2,4.6,0,Math.PI); ctx.fill();
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(fx,fy0+2,4.6,0,Math.PI); ctx.stroke();
+    }
+    // floor slab, load-bearing and proud of it
     ctx.fillStyle='#5a4a3c';
-    ctx.fillRect(r.x-2, r.floorY, r.w+4, 3.4);
-    wob(ctx, [[r.x-2,r.floorY],[r.x+r.w+2,r.floorY]], 820+r.x, {w:1.4});
+    ctx.fillRect(r.x-2, r.floorY, r.w+4, 5);
+    wob(ctx, [[r.x-2,r.floorY],[r.x+r.w+2,r.floorY]], 820+r.x, {w:1.5});
+    wob(ctx, [[r.x-2,r.floorY+5],[r.x+r.w+2,r.floorY+5]], 821+r.x, {w:1.1});
   }
   // chapter-room Monday blinds: RITUAL IN PROGRESS
   const d=CLOCK.derive();
@@ -2155,19 +2254,92 @@ function drawHeroShell(ctx, t){
       ctx.restore();
     }
   }
-  // porch ghost so exterior actors keep their stage
-  ctx.globalAlpha=0.55;
-  ctx.fillStyle='#ded2b4';
-  ctx.fillRect(HERO.h.x-158, -26, 316, 10);
-  ctx.globalAlpha=0.4;
-  for (let i=0;i<5;i++){
-    const cx=HERO.h.x-150+16+i*(300-32)/4;
-    ctx.fillStyle=PAL.colonnade;
-    ctx.fillRect(cx-5, -114, 9, 88);
+  // ---- the side porch ------------------------------------------------------
+  // In cutaway, the front porch went with the facade — so the porch lives at
+  // the gable end, where the couch crew can still supervise the street.
+  {
+    const a=Math.min(1,HERO.openT*1.4);
+    ctx.save();
+    ctx.globalAlpha=a;
+    const pL=hx-232, pR=hx-152;
+    // shadow + piers
+    ctx.fillStyle='rgba(40,28,18,0.3)';
+    ctx.fillRect(pL+2, -6, pR-pL-4, 8);
+    ctx.fillStyle='#8a7a62';
+    ctx.fillRect(pL+8, -8, 7, 10); ctx.fillRect(pR-16, -8, 7, 10);
+    // deck
+    ctx.fillStyle='#ded2b4';
+    ctx.fillRect(pL, -14, pR-pL, 7);
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6;
+    ctx.strokeRect(pL, -14, pR-pL, 7);
+    // steps down at the far end
+    ctx.fillStyle='#ded2b4';
+    ctx.fillRect(pL-12, -8, 13, 4); ctx.fillRect(pL-7, -4, 8, 4);
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.1;
+    ctx.strokeRect(pL-12, -8, 13, 4); ctx.strokeRect(pL-7, -4, 8, 4);
+    // columns + little roof tied into the house wall
+    for (const cx of [pL+7, pR-9]){
+      ctx.fillStyle=PAL.colonnade;
+      ctx.fillRect(cx-4, -96, 8, 82);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.4;
+      ctx.strokeRect(cx-4, -96, 8, 82);
+    }
+    ctx.fillStyle='#ded2b4';
+    ctx.fillRect(pL-8, -106, pR-pL+14, 11);
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6;
+    ctx.strokeRect(pL-8, -106, pR-pL+14, 11);
+    // railing
+    ctx.strokeStyle='#b8a988'; ctx.lineWidth=1.6;
+    for (let i=0;i<=6;i++){
+      const px=pL+6+i*(pR-pL-12)/6;
+      ctx.beginPath(); ctx.moveTo(px,-14); ctx.lineTo(px,-32); ctx.stroke();
+    }
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.moveTo(pL,-32); ctx.lineTo(pR,-32); ctx.stroke();
+    // the couch, obviously
+    ctx.save(); ctx.translate(hx-166,-14); PROPS.couch(ctx,1); ctx.restore();
+    // the driveway hoop survives the cutaway too — H-O-R-S-E waits for no one
+    const hpx=hx+205;
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=2.4;
+    ctx.beginPath(); ctx.moveTo(hpx,-2); ctx.lineTo(hpx,-118); ctx.stroke();
+    ctx.fillStyle='#e8e2d2';
+    ctx.fillRect(hpx-20,-138,40,26);
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.6; ctx.strokeRect(hpx-20,-138,40,26);
+    ctx.strokeStyle='#c9502c'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.ellipse(hpx-24,-112,7,2.6,0,0,7); ctx.stroke();
+    ctx.strokeStyle='rgba(58,47,38,.5)'; ctx.lineWidth=1;
+    for (let i=0;i<4;i++){ ctx.beginPath(); ctx.moveTo(hpx-30+i*4.2,-110); ctx.lineTo(hpx-28+i*4,-100); ctx.stroke(); }
+    ctx.restore();
   }
-  ctx.globalAlpha=0.85;
-  ctx.save(); ctx.translate(HERO.h.x+120,-26); PROPS.couch(ctx,1); ctx.restore();
-  ctx.globalAlpha=1;
+  // attic clutter — every attic is a museum of poor decisions
+  {
+    const ay=-136;
+    const box=(bx,bw2,bh2,col)=>{
+      ctx.fillStyle=col; ctx.fillRect(bx,ay-bh2,bw2,bh2);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.1; ctx.strokeRect(bx,ay-bh2,bw2,bh2);
+      ctx.strokeStyle='rgba(90,64,40,0.5)'; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(bx+bw2/2,ay-bh2); ctx.lineTo(bx+bw2/2,ay); ctx.stroke();
+    };
+    box(L+16, 26, 16, '#b8945f');
+    box(L+20, 20, 12, '#c4a26c');
+    // a retired composite, leaning, facing the wall out of respect
+    ctx.save(); ctx.translate(L+56, ay-14); ctx.rotate(-0.1);
+    ctx.fillStyle='#4a3220'; ctx.fillRect(-11,-14,22,26);
+    ctx.fillStyle='#8a7862'; ctx.fillRect(-9,-12,18,22);
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1; ctx.strokeRect(-11,-14,22,26);
+    ctx.restore();
+    box(hx+W/2-44, 24, 14, '#b8945f');
+    // the RUSH sign, off-season
+    ctx.save(); ctx.translate(hx+W/2-58, ay); ctx.rotate(0.12);
+    ctx.fillStyle='#efe7d2'; ctx.fillRect(-13,-30,26,17);
+    ctx.strokeStyle=PAL.ink; ctx.lineWidth=1; ctx.strokeRect(-13,-30,26,17);
+    ctx.fillStyle='#8a2a1a'; ctx.font='bold 7px Georgia'; ctx.textAlign='center';
+    ctx.fillText('RUSH',0,-18.5);
+    ctx.textAlign='left';
+    ctx.strokeStyle='#8a7862'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(0,-13); ctx.lineTo(0,0); ctx.stroke();
+    ctx.restore();
+  }
   // roof deck railing
   const rr=HERO.rooms.find(r=>r.id==='roof');
   ctx.strokeStyle='#8a7862'; ctx.lineWidth=1.8;
@@ -2373,21 +2545,28 @@ function drawHeroActors(ctx, rt, openT){
     if (room.id==='chapter' && d.dow===0 && d.hour>=20.5) continue;
     ctx.save();
     ctx.globalAlpha=interiorAlpha;
+    // when the cutaway opens, porch actors sidestep to the side porch
+    const sideT=room.id==='porch' ? smoothstep(0.3,0.8,openT) : 0;
     st.vig.cast.forEach((c,ci)=>{
       const p=PEOPLE[st.cast[ci]];
       if (!p) return;
-      const ax=room.x + room.w/2 + c.dx;   // authored dx is relative to room center
-      const fy=room.floorY;
+      let ax=room.x + room.w/2 + c.dx;   // authored dx is relative to room center
+      let fy=room.floorY;
+      if (sideT>0){
+        ax=lerp(ax, HERO.h.x-196 + c.dx*0.28, sideT);
+        fy=lerp(fy, -14, sideT);
+      }
       const sx=projX(band, ax);
       if (sx<-80||sx>view.w+80) return;
       const sy=groundY(band)+fy*CAM.z;
       ctx.save();
       ctx.translate(sx,sy);
-      ctx.scale(CAM.z*(c.face||1), CAM.z);
+      // 0.88: people fit their rooms; heads stop poking through ceilings
+      ctx.scale(CAM.z*0.88*(c.face||1), CAM.z*0.88);
       const f=(rt*0.5 + ci*0.37 + hash01(p.pid)*0.9)%1;
       (POSES[c.pose]||POSES.stand)(ctx, p, f);
       ctx.restore();
-      HIT.push({pid:p.pid, sx, sy:sy-46*CAM.z});
+      HIT.push({pid:p.pid, sx, sy:sy-42*CAM.z});
     });
     // vignette props draw IN FRONT of the cast — the poker table hides laps,
     // exactly like a dollhouse should
@@ -2417,8 +2596,14 @@ function drawHeroActors(ctx, rt, openT){
             const variants=line.t;
             let txt=variants[Math.floor(hash01(p.pid, si, Math.floor(rt/loopLen))*variants.length)];
             txt=txt.replace('{n}', ''+(2+Math.floor(hash01(p.pid)*4)));
-            const ax=room.x+room.w/2+st.vig.cast[line.ci].dx;
-            sayAt('ROW', ax, room.floorY-58, txt, {think:line.think, dur:4.2});
+            const sideT2=room.id==='porch' ? smoothstep(0.3,0.8,openT) : 0;
+            let ax=room.x+room.w/2+st.vig.cast[line.ci].dx;
+            let fy=room.floorY;
+            if (sideT2>0){
+              ax=lerp(ax, HERO.h.x-196+st.vig.cast[line.ci].dx*0.28, sideT2);
+              fy=lerp(fy, -14, sideT2);
+            }
+            sayAt('ROW', ax, fy-54, txt, {think:line.think, dur:4.2});
             p.mentions++;
           }
         }
@@ -2732,12 +2917,19 @@ function drawParties(ctx, rt){
     if (sx<-400||sx>view.w+400) continue;
     let n=(pt.big?14:8)+(ACTS.perfectDay===CLOCK.derive().dayAbs?5:0);
     if (PERF.rung>=2) n=Math.min(n,7);
+    // when the hero house is open, its porch guests spill around the house
+    // on the lawn instead of haunting the first-floor rooms
+    const spillT=pt.hero ? smoothstep(0.3,0.8,HERO.openT) : 0;
     for (let i=0;i<n;i++){
       const off=(hash01(hx,i,1)-0.5)*(pt.big?300:220);
-      const ax=hx+off;
+      let ax=hx+off;
       const isPorch=Math.abs(off)<130;
       if (raining && !isPorch) continue;   // rain herds everyone under the roof
-      const fy=isPorch?-26:0;
+      let fy=isPorch?-26:0;
+      if (isPorch && spillT>0){
+        ax=hx+lerp(off, Math.sign(off||1)*(172+Math.abs(off)*0.45), spillT);
+        fy=lerp(fy, 0, spillT);
+      }
       const psx=projX(band,ax);
       if (psx<-60||psx>view.w+60) continue;
       const psy=groundY(band)+fy*CAM.z;
@@ -3509,6 +3701,7 @@ function specialsTick(dt, rt){
   if (ACTS.cadets && rt-ACTS.cadets.t0>110) ACTS.cadets=null;
 }
 function drawSpecials(ctx, rt){
+  if (HERO.openT>0.65) return;   // street-level errands hide with the street
   const band=BAND.ROW, gy=groundY(band);
   const d=CLOCK.derive();
   const hrW=d.hour<6?d.hour+24:d.hour;
