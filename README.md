@@ -25,6 +25,15 @@ Double-click `the_row.html`, or drop it on any static host. The seed lives in th
 Nothing is required of you. Drag to wander, scroll to lean in, drag the clock dial to move
 through the day, and set the pace (⏸ / 1× / 4× / 60×).
 
+And the world answers back: **click a guy** to pin his card and *follow him* through
+his day (drag to let him go). **Knock on the front door** — a pledge answers, formally.
+**Click the wall phone** in the foyer and somebody sprints for it. **Kill the basement
+lights** during a party if you dare. **Pet the dog.** **Ring the chapel bell** for no
+reason anyone can name. The same guys keep the same routines week to week — the napper
+carries his pillow, the poker shark wears sunglasses indoors, the guy with the ladder is
+still not explaining the ladder — and some of them will earn nicknames right in front of
+you, kept forever.
+
 Things worth finding:
 - **Friday and Saturday nights** — houses throw parties (windows blaze, lawns fill, ♪ drifts).
   Saturdays at ΓΔ: the Evenflow rager, mass high-fives during the "Alive" solo.

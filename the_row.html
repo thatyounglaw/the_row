@@ -16,6 +16,20 @@
   #datechip .d1 { font-size:15px; font-weight:bold; letter-spacing:1px; }
   #datechip .d2 { font-size:12px; font-style:italic; opacity:.75; margin-top:2px; }
   #hint { bottom:14px; right:20px; font-size:11px; font-style:italic; opacity:.55; }
+  #pincard {
+    position:absolute; top:84px; left:22px; z-index:26; display:none; pointer-events:auto;
+    background:rgba(250,243,226,.97); border:1px solid #3a2f26; border-radius:3px;
+    padding:8px 12px; font-family:Georgia, serif; font-size:12px; color:#3a2f26;
+    max-width:250px; box-shadow:2px 3px 0 rgba(58,47,38,.18);
+  }
+  #pincard b { font-size:13px; }
+  #pincard .sub { font-style:italic; opacity:.8; font-size:11px; margin-top:2px; }
+  #pincard .row { margin-top:6px; display:flex; gap:6px; }
+  #pincard button {
+    font-family:Georgia, serif; font-style:italic; font-size:11px; color:#3a2f26; cursor:pointer;
+    background:rgba(244,234,214,.7); border:1px solid rgba(58,47,38,.4); border-radius:3px; padding:1px 8px;
+  }
+  #pincard button:hover { background:rgba(58,47,38,.12); }
   #seedchip { bottom:14px; left:20px; font-size:11px; opacity:.75; pointer-events:auto; }
   #seedchip button {
     font-family:Georgia, serif; font-style:italic; font-size:11px; color:#3a2f26;
@@ -102,7 +116,7 @@
 <canvas id="c"></canvas>
 <div id="title" class="hud"><div class="t1">THE ROW</div><div class="t2" id="subtitle">Colonnade College &middot; Lexford, Virginia</div></div>
 <div id="datechip" class="hud"><div class="d1" id="d1">&nbsp;</div><div class="d2" id="d2">&nbsp;</div></div>
-<div id="hint" class="hud">drag to wander &middot; scroll to lean in</div>
+<div id="hint" class="hud">drag to wander &middot; scroll to lean in &middot; click a guy, a door, the dog</div>
 <div id="seedchip" class="hud">seed <b id="seedval"></b><button id="reseed">new year</button><button id="copylink">copy link</button></div>
 <div id="loading"><div class="big">THE ROW</div><div class="sub" id="loadmsg">inking the valley&hellip;</div></div>
 <script>
@@ -1149,6 +1163,10 @@ function drawFigure(ctx, f, rt){
     ctx.fillStyle=PAL.ink;
     ctx.beginPath(); ctx.arc(5,-47,1.1,0,7); ctx.fill();
   }
+  if (f.pid>=0 && CAM.z>0.8){
+    const pp=PEOPLE[f.pid];
+    if (pp) drawSignature(ctx, pp, -46, -16);
+  }
   ctx.restore();
 }
 const HEYS=['Hey.','Hey!','Heyyy.','What’s up.','Mornin’.','There he is.','Hey now.','Evenin’.'];
@@ -1196,6 +1214,7 @@ function drawDog(ctx){
 function figTick(dt, rt){
   dogTick(dt);
   for (const f of FIGS){
+    if (!walkerActive(f)) continue;
     f.x += f.dir*f.speed*dt;
     f.phase += f.speed*dt/34;
     if (f.x<380){ f.dir=1; } if (f.x>4620){ f.dir=-1; }
@@ -1203,6 +1222,7 @@ function figTick(dt, rt){
   // the Speaking Tradition
   for (let i=0;i<FIGS.length;i++) for (let j=i+1;j<FIGS.length;j++){
     const a=FIGS[i],b=FIGS[j];
+    if (!walkerActive(a)||!walkerActive(b)) continue;
     if (a.dir===b.dir) continue;
     const d=Math.abs(a.x-b.x);
     if (d<34 && rt-a.lastHey>7 && rt-b.lastHey>7){
@@ -1219,13 +1239,16 @@ function drawFigures(ctx, rt){
   ctx.save();
   ctx.globalAlpha=clamp(1-HERO.openT*1.15,0,1);
   for (const f of FIGS){
+    if (!walkerActive(f)) continue;
     const sx=projX(band, f.x);
     if (sx<-60||sx>view.w+60) continue;
+    const p=f.pid>=0?PEOPLE[f.pid]:null;
     ctx.save();
     ctx.translate(sx, gy+f.gy*CAM.z);
-    ctx.scale(CAM.z, CAM.z);
+    ctx.scale(CAM.z*(p?p.wScale:1), CAM.z*(p?p.hScale:1));
     drawFigure(ctx, f, rt);
     ctx.restore();
+    if (p) HIT.push({pid:f.pid, sx, sy:gy+f.gy*CAM.z-46*CAM.z, wx:f.x, band:'ROW'});
   }
   ctx.restore();
 }
@@ -1446,8 +1469,10 @@ function frame(ts){
       drawDog(ctx);
       drawGags(ctx, rt);
       drawSpecials(ctx, rt);
+      drawInteract(ctx, rt);
     }
   }
+  followTick(dt, rt);
   drawWorldBubbles(ctx);
   // day tint (multiply), feathered off the sky so dusk doesn't double-dip
   if (sk.tint!=='#ffffff'){
@@ -1536,7 +1561,7 @@ function boot(){
   nudgeInit();
   compInit();
   audioInit();
-  for (let i=0;i<9;i++) FIGS.push(makeWalker(i+1));
+  buildWalkers();
   // Friday, September 12, golden hour — drift in like a postcard settling
   CLOCK.t=11*TICKS_PER_DAY+Math.floor(18.7*4);
   CLOCK.speed=1.2;
@@ -1591,7 +1616,9 @@ function newPerson(kind, orgKey, classYear, rnd){
     hair: HAIRS[Math.floor(g(2)*HAIRS.length)],
     polo: PAL.polos[Math.floor(g(3)*PAL.polos.length)],
     hat: g(8)<0.2, female: !male,
-    tag: null, mentions:0,
+    // recognizable from across the street: everyone gets a build
+    hScale: 0.92+g(11)*0.2, wScale: 0.94+g(12)*0.14,
+    tag: null, mentions:0, knownWhy:null,
   };
   PEOPLE.push(p);
   return p;
@@ -1684,8 +1711,70 @@ function rigCore(ctx, p, opts){
     ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.2;
     ctx.beginPath(); ctx.arc(1.5,hy+4,3.2,0.5,2.6); ctx.stroke();
   }
+  if (CAM.z>0.8) drawSignature(ctx, p, hy, tor[1]);
   ctx.restore();
   return hy;
+}
+// the signature: each tagged character carries his tell, always —
+// that's how you learn who's who from across the street
+function drawSignature(ctx, p, hy, torY){
+  switch(p.tag){
+    case 'movieNerd':   // round glasses, scholarly
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.1;
+      ctx.beginPath(); ctx.arc(-2.2,hy-1,3,0,7); ctx.stroke();
+      ctx.beginPath(); ctx.arc(5.2,hy-1,3,0,7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0.8,hy-1); ctx.lineTo(2.2,hy-1); ctx.stroke();
+      break;
+    case 'pokerShark':  // sunglasses. indoors. at night. always.
+      ctx.fillStyle='#22242a';
+      ctx.fillRect(-5,hy-3.4,13,4.2);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=0.9; ctx.strokeRect(-5,hy-3.4,13,4.2);
+      break;
+    case 'gymRat':      // the headband nobody asked about
+      ctx.fillStyle='#c03a30'; ctx.fillRect(-8,hy-7.5,18,3.4);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=0.8; ctx.strokeRect(-8,hy-7.5,18,3.4);
+      break;
+    case 'auxHog':      // headphones around the neck, guarding the aux
+      ctx.strokeStyle='#2a2a3a'; ctx.lineWidth=2.2;
+      ctx.beginPath(); ctx.arc(1,hy+8,7,0.4,2.7); ctx.stroke();
+      ctx.fillStyle='#2a2a3a';
+      ctx.beginPath(); ctx.arc(-5.4,hy+10.5,2.4,0,7); ctx.fill();
+      ctx.beginPath(); ctx.arc(7.4,hy+10.5,2.4,0,7); ctx.fill();
+      break;
+    case 'napper':      // the pillow travels with him
+      ctx.save(); ctx.translate(-11,torY-7); ctx.rotate(-0.2);
+      ctx.fillStyle='#f0e8d4'; ctx.fillRect(-6,-4,13,8.5);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1; ctx.strokeRect(-6,-4,13,8.5);
+      ctx.restore();
+      break;
+    case 'tapehead':    // the binder. 400 discs. alphabetized.
+      ctx.fillStyle='#2a2a3a'; ctx.fillRect(-13,torY-10,7.5,11);
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=0.9; ctx.strokeRect(-13,torY-10,7.5,11);
+      ctx.fillStyle='#c0c8d0'; ctx.beginPath(); ctx.arc(-9.2,torY-4.5,1.6,0,7); ctx.fill();
+      break;
+    case 'horseChamp':  // the ball stays with the champion
+      ctx.fillStyle='#c9502c';
+      ctx.beginPath(); ctx.arc(-11,torY-6,4.6,0,7); ctx.fill();
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(-11,torY-6,4.6,0,7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-15.6,torY-6); ctx.lineTo(-6.4,torY-6); ctx.stroke();
+      break;
+    case 'grillMarshal': // apron, at the ready
+      ctx.fillStyle='rgba(255,255,255,0.7)';
+      ctx.beginPath(); ctx.moveTo(-4,torY-16); ctx.lineTo(4,torY-16); ctx.lineTo(5,torY-2); ctx.lineTo(-5,torY-2); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=0.8; ctx.stroke();
+      break;
+    case 'aimGhost':    // the hood, up in spirit even when down
+      ctx.strokeStyle='#8a8f96'; ctx.lineWidth=2.6;
+      ctx.beginPath(); ctx.arc(1,hy+2,10.6,Math.PI*0.85,Math.PI*0.15); ctx.stroke();
+      ctx.strokeStyle='#6a6f76'; ctx.lineWidth=1.1;
+      ctx.beginPath(); ctx.moveTo(-2,hy+10); ctx.lineTo(-2,hy+15); ctx.moveTo(4,hy+10); ctx.lineTo(4,hy+15); ctx.stroke();
+      break;
+    case 'cerealMonk':  // the robe. the uniform of 2 AM.
+      ctx.strokeStyle='#7a2f2a'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(-3,torY-19); ctx.lineTo(-5,torY); ctx.moveTo(3,torY-19); ctx.lineTo(5,torY); ctx.stroke();
+      break;
+  }
 }
 function legsStand(ctx, p, sway){
   ctx.strokeStyle=p.female?'#7a6a5a':PAL.khaki; ctx.lineWidth=5; ctx.lineCap='round';
@@ -1913,12 +2002,14 @@ function hoverInit(){
       const p=PEOPLE[best.pid];
       el.innerHTML='<b>'+p.full+(p.kind==='COOK'?'':' '+classTag(p))+'</b><br><span>'+
         (p.kind==='COOK' ? 'runs this kitchen' : (WORLD.houses.find(x=>x.frat.key===p.orgKey)||{frat:{letters:p.sorLetters||p.orgLabel||''}}).frat.letters)+
-        (p.tag||p.kind==='COOK' ? ' · known for: '+knownFor(p) : '')+'</span>';
+        (p.tag||p.kind==='COOK' ? ' · known for: '+knownFor(p) : '')+
+        (p.knownWhy ? '<br><i>“'+p.knownWhy+'”</i>' : '')+'</span>';
       el.style.display='block';
       el.style.left=Math.min(view.w-240, e.clientX+14)+'px';
       el.style.top=(e.clientY-8)+'px';
       HOVER.cur=best.pid;
     } else { el.style.display='none'; HOVER.cur=null; }
+    if (!CAM.dragging) cv.style.cursor = best ? 'pointer' : '';
   });
 }
 
@@ -2107,7 +2198,7 @@ function heroRooms(hx){
     { id:'tv',      name:'the TV room',   x:L+8,   y:-76,  w:128,  h:56,  floorY:-20, wall:'#8a7a62',
       props:[ ['couch',L+52,-20,0], ['crt',L+104,-20,0], ['cdBinder',L+86,-20,0], ['posterCollege',L+22,-40,0] ] },
     { id:'foyer',   name:'the foyer',     x:L+140, y:-76,  w:44,   h:56,  floorY:-20, wall:'#9a8a6e',
-      props:[ ['stairs',L+144,-22,0], ['paddle',L+172,-40,0] ] },
+      props:[ ['stairs',L+144,-22,0], ['paddle',L+172,-40,0], ['wallphone',L+181,-44,0] ] },
     { id:'kitchen', name:'the kitchen',   x:L+188, y:-76,  w:104,  h:56,  floorY:-20, wall:'#a09270',
       props:[ ['fridge',L+206,-20,0], ['stove',L+238,-20,0], ['foreman',L+262,-26,0], ['trash',L+280,-20,0] ] },
     { id:'bedA',    name:'the front bedroom', x:L+8, y:-136, w:96,   h:56,  floorY:-78, wall:'#7a8292',
@@ -2524,13 +2615,24 @@ function stageHero(){
         const anyone=roster.filter(x=>!used.has(x.pid) && !x.female);
         const from=tagged.length?tagged:anyone;
         if (!from.length){ ok=false; return; }
-        p=from[Math.floor(hash01(d.dayAbs, block, room.x, 3+ci)*from.length)];
+        // week-stable casting: the same guy holds the same couch cushion
+        // all week — that's how you learn who's who
+        p=from[Math.floor(hash01(Math.floor(d.dayAbs/7), room.x, 17+ci)*from.length)];
       }
       used.add(p.pid);
       cast.push(p.pid);
     });
     if (!ok) continue;
     HERO.staged[room.id]={ vig:pick, cast, t0:performance.now()/1000, fired:{} };
+    // some scenes leave a mark: nicknames are earned in public, kept forever
+    if (pick.id==='grillfire' && !GAGS.sparkyDone && cast[1]!==undefined){
+      GAGS.sparkyDone=1;
+      earnNickname(PEOPLE[cast[1]], 'Sparky', 'one legendary grill fireball');
+    }
+    if (pick.id==='sundaydetectives' && d.dayAbs>13 && !GAGS.biscuitDone && cast[2]!==undefined){
+      GAGS.biscuitDone=1;
+      earnNickname(PEOPLE[cast[2]], 'Biscuit', 'the Sunday biscuit run');
+    }
   }
 }
 function drawHeroActors(ctx, rt, openT){
@@ -2562,11 +2664,11 @@ function drawHeroActors(ctx, rt, openT){
       ctx.save();
       ctx.translate(sx,sy);
       // 0.88: people fit their rooms; heads stop poking through ceilings
-      ctx.scale(CAM.z*0.88*(c.face||1), CAM.z*0.88);
+      ctx.scale(CAM.z*0.88*p.wScale*(c.face||1), CAM.z*0.88*p.hScale);
       const f=(rt*0.5 + ci*0.37 + hash01(p.pid)*0.9)%1;
       (POSES[c.pose]||POSES.stand)(ctx, p, f);
       ctx.restore();
-      HIT.push({pid:p.pid, sx, sy:sy-42*CAM.z});
+      HIT.push({pid:p.pid, sx, sy:sy-42*CAM.z, wx:ax, band:'ROW'});
     });
     // vignette props draw IN FRONT of the cast — the poker table hides laps,
     // exactly like a dollhouse should
@@ -2755,9 +2857,10 @@ function drawPoleHouse(ctx, p){
 
 // ==== §11c NEW BAND PAINTERS ================================================
 WORLDDRAW.TOWN=function(ctx, x0, x1){
-  // grass base
+  // grass base — kept LOW so the Row's street shows through the gaps
+  // between town buildings (street life must be visible at street zoom)
   ctx.fillStyle=shade(PAL.lawn,0.94);
-  ctx.fillRect(x0-20,-150,x1-x0+40,150+40);
+  ctx.fillRect(x0-20,-58,x1-x0+40,58+40);
   // sidewalk + street
   ctx.fillStyle=PAL.sidewalk; ctx.fillRect(x0-20, 2, x1-x0+40, 10);
   ctx.fillStyle=shade(PAL.asphalt,0.94); ctx.fillRect(x0-20, 12, x1-x0+40, 28);
@@ -2840,7 +2943,7 @@ function stageOthers(){
     const roster=h.roster.map(pid=>PEOPLE[pid]);
     const cast=[];
     for (let i=0;i<g.poses.length;i++){
-      const p=roster[Math.floor(hash01(d.dayAbs, block, h.x, 3+i)*roster.length)];
+      const p=roster[Math.floor(hash01(Math.floor(d.dayAbs/7), h.x, 3+i)*roster.length)];
       cast.push(p.pid);
     }
     OTHERSTAGE.staged.push({h, g, cast, t0:performance.now()/1000, fired:{}});
@@ -2857,11 +2960,11 @@ function drawOthers(ctx, rt){
       const sy=groundY(band)+(-26)*CAM.z;
       ctx.save();
       ctx.translate(sx,sy);
-      ctx.scale(CAM.z*(st.g.dx[i]<0?1:-1), CAM.z);
+      ctx.scale(CAM.z*p.wScale*(st.g.dx[i]<0?1:-1), CAM.z*p.hScale);
       const f=(rt*0.5+i*0.4+hash01(p.pid))%1;
       (POSES[st.g.poses[i]]||POSES.stand)(ctx,p,f);
       ctx.restore();
-      HIT.push({pid:p.pid, sx, sy:sy-46*CAM.z});
+      HIT.push({pid:p.pid, sx, sy:sy-46*CAM.z, wx:ax, band:'ROW'});
     }
     // occasional line
     const loopLen=44;
@@ -2938,11 +3041,12 @@ function drawParties(ctx, rt){
       const guest={ pid:-1, female, polo: pt.fd ? (female?FD_DRESSES[i%FD_DRESSES.length]:'#26262e')
           : PAL.polos[Math.floor(hash01(hx,i,3)*8)],
         skin:SKINS[Math.floor(hash01(hx,i,4)*6)], hair:HAIRS[Math.floor(hash01(hx,i,5)*7)],
-        hat:!pt.fd && hash01(hx,i,6)<0.2, kind:'GUEST' };
+        hat:!pt.fd && hash01(hx,i,6)<0.2, kind:'GUEST',
+        hScale:0.92+hash01(hx,i,9)*0.2, wScale:0.94+hash01(hx,i,10)*0.14 };
       const poseName= pt.big && isPorch ? 'highfive' : ['drink','talk','dance','stand'][Math.floor(hash01(hx,i,7)*4)];
       ctx.save();
       ctx.translate(psx,psy);
-      ctx.scale(CAM.z*(hash01(hx,i,8)<0.5?-1:1), CAM.z);
+      ctx.scale(CAM.z*guest.wScale*(hash01(hx,i,8)<0.5?-1:1), CAM.z*guest.hScale);
       (POSES[poseName]||POSES.stand)(ctx, guest, (rt*0.5+i*0.29)%1);
       ctx.restore();
     }
@@ -3244,8 +3348,8 @@ function stageSors(){
     if (raining) continue;
     if (!(d.hour>=14 && d.hour<23)) continue;
     if (hash01(d.dayAbs, block, so.x)>0.6) continue;
-    const a=so.roster[Math.floor(hash01(d.dayAbs,block,so.x,1)*so.roster.length)];
-    let b=so.roster[Math.floor(hash01(d.dayAbs,block,so.x,2)*so.roster.length)];
+    const a=so.roster[Math.floor(hash01(Math.floor(d.dayAbs/7),so.x,1)*so.roster.length)];
+    let b=so.roster[Math.floor(hash01(Math.floor(d.dayAbs/7),so.x,2)*so.roster.length)];
     if (b===a) b=so.roster[(so.roster.indexOf(a)+1)%so.roster.length];
     SORSTAGE.staged.push({so, cast:[a,b], t0:performance.now()/1000, fired:{}});
   }
@@ -3263,10 +3367,10 @@ function drawTownLife(ctx, rt){
       if (sx<-60||sx>view.w+60) continue;
       const sy=gy+(-18)*CAM.z;
       ctx.save();
-      ctx.translate(sx,sy); ctx.scale(CAM.z*(i?-1:1),CAM.z);
+      ctx.translate(sx,sy); ctx.scale(CAM.z*p.wScale*(i?-1:1),CAM.z*p.hScale);
       POSES.talk(ctx, p, (rt*0.5+i*0.4)%1);
       ctx.restore();
-      HIT.push({pid:p.pid, sx, sy:sy-46*CAM.z+CAM.fade*view.h*0.6});
+      HIT.push({pid:p.pid, sx, sy:sy-46*CAM.z+CAM.fade*view.h*0.6, wx:xs[i], band:'TOWN'});
     }
     const loopLen=40, el=(rt-st.t0)%loopLen, kk=Math.floor((rt-st.t0)/loopLen);
     if (el>=9 && !st.fired[kk] && CAM.z>0.5){
@@ -3844,16 +3948,7 @@ function compInit(){
     if (!COMP.down) return;
     const [dx,dy,dt0]=COMP.down; COMP.down=null;
     if (Math.hypot(e.clientX-dx, e.clientY-dy)>7 || performance.now()-dt0>450) return;
-    if (HERO.openT<0.55) return;
-    const L=HERO.h.x-150;
-    const band=BAND.ROW;
-    const x0=projX(band, L+136-17), x1=projX(band, L+136+17);
-    const gy=groundY(band);
-    const y0=gy+(-94-36)*CAM.z, y1=gy+(-94-8)*CAM.z;
-    if (e.clientX>=x0 && e.clientX<=x1 && e.clientY>=y0 && e.clientY<=y1){
-      drawComposite();
-      COMP.wrap.style.display='flex';
-    }
+    worldClick(e);
   });
 }
 function drawComposite(){
@@ -4223,7 +4318,14 @@ function audioTick(dt, rt){
   const lean=clamp((CAM.z-0.45)/1.5, 0, 1);
   const open=prox*(0.3+0.7*lean);
   AUDIO.dbg={open, prox, big:!!(best&&best.big)};
-  ease(AUDIO.g.party, open*0.55*(best&&best.big?1.2:1));
+  let pTarget=open*0.55*(best&&best.big?1.2:1);
+  if (INTERACT.lightsT>0){
+    const el2=rt-INTERACT.lightsT;
+    if (el2<3.2) pTarget=0;                 // somebody hit the lights
+    else if (el2<7) pTarget*=1.3;           // the cheer, and the drop
+    else INTERACT.lightsT=0;
+  }
+  ease(AUDIO.g.party, pTarget);
   ease(AUDIO.g.murmur, open*open*0.5);
   if (AUDIO.wall)
     AUDIO.wall.frequency.value+=((120+open*880+(best&&best.big?160:0))-AUDIO.wall.frequency.value)*Math.min(1,dt*3);
@@ -4373,6 +4475,397 @@ VIGS.push(
    script:[
     {at:6,ci:0,t:['For the championship. (it’s Tuesday.) For the CHAMPIONSHIP.','Ninety-eight… ninety-nine… wait. Start over.']},
     {at:18,ci:0,t:['The lamp is the defender. The lamp never blinks.','(swish) (nobody saw) (it still counts)']} ]}
+);
+
+// ==== §23 BET 1: PEOPLE YOU RECOGNIZE =======================================
+
+// Walkers are real roster members on real schedules: the same guy walks to
+// class at the same hour on the same days. Recognition compounds.
+function buildWalkers(){
+  FIGS.length=0;
+  const picks=[];
+  for (const h of WORLD.houses){
+    picks.push(PEOPLE[h.roster[Math.floor(hash01(h.x,301)*h.roster.length)]]);
+    picks.push(PEOPLE[h.roster[Math.floor(hash01(h.x,302)*h.roster.length)]]);
+  }
+  for (const so of WORLD.sors)
+    picks.push(PEOPLE[so.roster[Math.floor(hash01(so.x,303)*so.roster.length)]]);
+  const WINDOWS=[[8.3,10.3],[9.4,11.4],[10.4,12.4],[13.2,15.2],[14.4,16.4],
+    [16,18],[17,19],[18.5,20.5],[20,22.2]];
+  picks.forEach((p,i)=>{
+    if (!p) return;
+    const win=WINDOWS[i%WINDOWS.length];
+    const r=hash01(p.pid,304);
+    const dows=r<0.38?[0,2,4]:r<0.7?[1,3]:[0,1,2,3,4,5,6];   // MWF, TTh, or a senior schedule
+    FIGS.push({ pid:p.pid, x:500+hash01(p.pid,306)*3800, dir:hash01(p.pid,307)<0.5?1:-1,
+      speed:40+hash01(p.pid,308)*26, band:'ROW', gy:24,
+      polo:p.polo, skin:p.skin, hair:p.hair, hat:p.hat, female:p.female,
+      phase:hash01(p.pid,309)*7, lastHey:-99, id:10+i, win, dows });
+  });
+  // a few all-day wanderers — the porch-to-porch economy
+  for (let i=0;i<3;i++){
+    const h=WORLD.houses[(i*2)%WORLD.houses.length];
+    const p=PEOPLE[h.roster[Math.floor(hash01(i,310)*h.roster.length)]];
+    FIGS.push({ pid:p.pid, x:700+hash01(i,311)*3400, dir:i%2?1:-1, speed:34,
+      band:'ROW', gy:24, polo:p.polo, skin:p.skin, hair:p.hair, hat:p.hat, female:p.female,
+      phase:hash01(i,312)*7, lastHey:-99, id:40+i, win:[10,22.5], dows:[0,1,2,3,4,5,6] });
+  }
+}
+function walkerActive(f){
+  if (!f.win) return true;
+  const d=CLOCK.derive();
+  return f.dows.includes(d.dow) && d.hour>=f.win[0] && d.hour<f.win[1];
+}
+
+// nicknames are earned in public and kept forever
+function earnNickname(p, nick, why){
+  if (!p || p.nick) return;
+  const d=CLOCK.derive();
+  const yr=seedBaseYear()+d.year;
+  p.nick=nick; p.name=nick;
+  p.full=p.first+' “'+nick+'” '+p.last;
+  p.knownWhy=why+' — '+MONTHS[d.month]+' '+yr;
+}
+
+// ---- pin a guy, follow a guy ------------------------------------------------
+const PIN={pid:-1, el:null};
+const FOLLOW={pid:-1, lastSeen:-1};
+function pinInit(){
+  const el=document.createElement('div');
+  el.id='pincard'; document.body.appendChild(el);
+  PIN.el=el;
+}
+function openPin(pid){
+  if (!PIN.el) pinInit();
+  PIN.pid=pid;
+  renderPin();
+  PIN.el.style.display='block';
+}
+function renderPin(){
+  const p=PEOPLE[PIN.pid];
+  if (!p){ PIN.el.style.display='none'; return; }
+  const org=(WORLD.houses.find(x=>x.frat.key===p.orgKey)||{frat:{letters:p.sorLetters||p.orgLabel||''}}).frat.letters;
+  const following=FOLLOW.pid===p.pid;
+  PIN.el.innerHTML='<b>'+p.full+(p.kind==='COOK'?'':' '+classTag(p))+'</b>'+
+    '<div class="sub">'+(p.kind==='COOK'?'runs this kitchen':org)+
+    (p.tag||p.kind==='COOK'?' · known for: '+knownFor(p):'')+
+    (p.knownWhy?'<br><i>“'+p.knownWhy+'”</i>':'')+'</div>'+
+    '<div class="row"><button id="pinfollow">'+(following?'stop following':'follow him')+'</button>'+
+    '<button id="pinclose">close</button></div>';
+  document.getElementById('pinfollow').onclick=()=>{
+    if (FOLLOW.pid===p.pid){ FOLLOW.pid=-1; }
+    else { FOLLOW.pid=p.pid; FOLLOW.lastSeen=performance.now()/1000; }
+    renderPin();
+  };
+  document.getElementById('pinclose').onclick=()=>{
+    PIN.pid=-1; PIN.el.style.display='none';
+  };
+}
+function followTick(dt, rt){
+  if (FOLLOW.pid<0) return;
+  if (CAM.dragging){ FOLLOW.pid=-1; if (PIN.pid>=0) renderPin(); return; }
+  const e=HIT.find(h2=>h2.pid===FOLLOW.pid && h2.wx!==undefined);
+  if (e){
+    FOLLOW.lastSeen=rt;
+    const b=BAND[e.band]||BAND.ROW;
+    CAM.tx=clamp(CAM.tx+(e.wx/b.pf-CAM.tx)*Math.min(1,dt*2.2), camMinX(CAM.tz), camMaxX(CAM.tz));
+    if (CAM.tz<0.8) CAM.tz=0.9;
+  } else if (rt-FOLLOW.lastSeen>9){
+    FOLLOW.pid=-1;
+    if (PIN.pid>=0) renderPin();
+  }
+}
+
+// ==== §24 BET 3: HANDS IN THE DOLLHOUSE =====================================
+const INTERACT={ knockT:0, knockPid:-1, phoneT:0, phonePid:-1, lightsT:0, chimeT:0 };
+
+// little sounds for little mischief
+function knockSfx(){
+  if (!AUDIO.started) return;
+  const C=AUDIO.ctx;
+  for (const off of [0,0.14]){
+    const t=C.currentTime+0.02+off;
+    const o=C.createOscillator(), g=C.createGain(), f=C.createBiquadFilter();
+    o.type='triangle'; o.frequency.value=95;
+    f.type='lowpass'; f.frequency.value=420;
+    g.gain.setValueAtTime(0.5,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.09);
+    o.connect(f); f.connect(g); g.connect(AUDIO.master);
+    o.start(t); o.stop(t+0.1);
+  }
+}
+function phoneSfx(){
+  if (!AUDIO.started) return;
+  const C=AUDIO.ctx;
+  for (let r=0;r<2;r++){
+    const t0=C.currentTime+0.05+r*1.4;
+    for (let i=0;i<12;i++){
+      const t=t0+i*0.045;
+      const o=C.createOscillator(), g=C.createGain();
+      o.frequency.value=i%2?1250:950;
+      g.gain.setValueAtTime(0.09,t);
+      g.gain.exponentialRampToValueAtTime(0.002,t+0.04);
+      o.connect(g); g.connect(AUDIO.master);
+      o.start(t); o.stop(t+0.05);
+    }
+  }
+}
+
+function worldClick(e){
+  const mx=e.clientX, my=e.clientY;
+  const inRect=(x0,y0,x1,y1)=>mx>=x0&&mx<=x1&&my>=y0&&my<=y1;
+  const bR=BAND.ROW, gy=groundY(bR), hx=HERO.h.x, L=hx-150;
+  // 1. the composite frame in the chapter room
+  if (HERO.openT>0.55){
+    const x0=projX(bR,L+136-17), x1=projX(bR,L+136+17);
+    if (inRect(x0, gy+(-94-36)*CAM.z, x1, gy+(-94-8)*CAM.z)){
+      drawComposite(); COMP.wrap.style.display='flex'; return;
+    }
+  }
+  const rtNow=performance.now()/1000;
+  // 2. knock on the front door (house closed)
+  if (HERO.openT<0.35){
+    if (inRect(projX(bR,hx-22), gy-82*CAM.z, projX(bR,hx+22), gy-14*CAM.z)){
+      if (rtNow-INTERACT.knockT>9){
+        INTERACT.knockT=rtNow;
+        const pledges=HERO.h.roster.map(p=>PEOPLE[p]).filter(p=>p.classYear===1);
+        const pl=pledges[Math.floor(hash01(Math.floor(rtNow),21)*pledges.length)]||PEOPLE[HERO.h.roster[0]];
+        INTERACT.knockPid=pl.pid;
+        knockSfx();
+        setTimeout(()=>{ sayAt('ROW', hx+26, -18-58,
+          ['Gamma Delta, Pledge '+pl.first+' speaking. …you appear to be a door.',
+           'Yes? …Oh. Good knock, sir. Solid knock.',
+           pl.first+' speaking! The brothers are… studying. All of them.'][Math.floor(hash01(Math.floor(rtNow),22)*3)],
+          {dur:4.4}); }, 900);
+      }
+      return;
+    }
+  }
+  // 3. the house phone (house open)
+  if (HERO.openT>0.5){
+    if (inRect(projX(bR,L+168), gy+(-58)*CAM.z, projX(bR,L+196), gy+(-28)*CAM.z)){
+      if (rtNow-INTERACT.phoneT>12){
+        INTERACT.phoneT=rtNow;
+        const bros=HERO.h.roster.map(p=>PEOPLE[p]).filter(p=>p.classYear===1);
+        INTERACT.phonePid=(bros[Math.floor(hash01(Math.floor(rtNow),23)*bros.length)]||PEOPLE[HERO.h.roster[0]]).pid;
+        phoneSfx();
+        setTimeout(()=>{ sayAt('ROW', L+170, -20-58,
+          ['ΓΔ house. …He’s at the library. (he is not at the library)',
+           'ΓΔ house, good evening. …Yes ma’am. Right away, ma’am.',
+           'ΓΔ. …The couch? The couch is FINE, sir.'][Math.floor(hash01(Math.floor(rtNow),24)*3)],
+          {dur:4.6}); }, 2600);
+      }
+      return;
+    }
+    // 4. the basement lights, during a party. you monster.
+    if (typeof houseParty==='function' && houseParty(hx) && partyHour()){
+      const bar=HERO.rooms.find(r=>r.id==='bar');
+      if (bar && inRect(projX(bR,bar.x), gy+(bar.floorY-bar.h)*CAM.z, projX(bR,bar.x+bar.w), gy+bar.floorY*CAM.z)){
+        if (rtNow-INTERACT.lightsT>14){
+          INTERACT.lightsT=rtNow;
+          sayAt('ROW', hx, 56-70, '(BOOOOO)', {dur:2.6});
+          setTimeout(()=>{ sayAt('ROW', hx, 56-70, '(the cheer heard down the Row)', {dur:3.4}); }, 3400);
+        }
+        return;
+      }
+    }
+  }
+  // 5. the dog
+  if (HERO.openT<0.85){
+    const dx=projX(bR, DOG.x), dy=gy+24*CAM.z;
+    if (Math.hypot(mx-dx, my-(dy-10*CAM.z))<30*Math.max(0.6,CAM.z)){
+      DOG.happy=rtNow+180;
+      DOG.pauseT=1.4;
+      sayAt('ROW', DOG.x, 24-52, '(good boy)', {dur:2.4, think:true});
+      return;
+    }
+  }
+  // 6. the chapel bell (the cupola'd center hall on the hill)
+  {
+    const bH=BAND.HILL, gyH=groundY(bH);
+    const cx=projX(bH, 880);
+    if (inRect(cx-22*CAM.z-8, gyH+(-58-190)*CAM.z, cx+22*CAM.z+8, gyH+(-58-150)*CAM.z)){
+      if (rtNow-INTERACT.chimeT>10){
+        INTERACT.chimeT=rtNow;
+        if (AUDIO.started) for (let i=0;i<3;i++) bellTone(AUDIO.ctx.currentTime+0.15+i*1.5);
+        BIRDS={t:rtNow, x:-100, y:90+Math.random()*120, n:4};
+        sayAt('HILL', 880, -238, '(the chapel bell, for no reason anyone can name)', {dur:3.6});
+      }
+      return;
+    }
+  }
+  // 7. otherwise: a person
+  let best=null, bd=28*28;
+  for (const h2 of HIT){
+    const d2=(h2.sx-mx)*(h2.sx-mx)+(h2.sy-my)*(h2.sy-my);
+    if (d2<bd){ bd=d2; best=h2; }
+  }
+  if (best) openPin(best.pid);
+}
+
+// choreography: motion is the comedy cartoons were born for
+function drawInteract(ctx, rt){
+  const band=BAND.ROW, gy=groundY(band), hx=HERO.h.x, L=hx-150;
+  const d=CLOCK.derive();
+  const put=(wx,wy,fn)=>{
+    const sx=projX(band,wx);
+    if (sx<-160||sx>view.w+160) return;
+    ctx.save(); ctx.translate(sx, gy+wy*CAM.z); ctx.scale(CAM.z,CAM.z); fn(); ctx.restore();
+  };
+  // the pledge answers the door
+  if (INTERACT.knockT>0 && rt-INTERACT.knockT<7 && rt-INTERACT.knockT>0.8 && HERO.openT<0.5){
+    const p=PEOPLE[INTERACT.knockPid];
+    if (p) put(hx+26, -18, ()=>{
+      ctx.scale(p.wScale,p.hScale);
+      POSES.stand(ctx, p, (rt*0.3)%1);
+    });
+  }
+  // somebody sprints for the house phone
+  if (INTERACT.phoneT>0 && rt-INTERACT.phoneT<8 && HERO.openT>0.4){
+    const p=PEOPLE[INTERACT.phonePid];
+    if (p){
+      const el=rt-INTERACT.phoneT;
+      const runX=el<2.4 ? lerp(hx+92, L+170, el/2.4) : L+170;
+      put(runX, -20, ()=>{
+        ctx.scale(0.88*p.wScale, 0.88*p.hScale);
+        if (el<2.4){
+          // the sprint — legs scissoring with purpose
+          const fig={pid:p.pid, dir:-1, phase:rt*4, polo:p.polo, skin:p.skin,
+            hair:p.hair, hat:p.hat, female:p.female};
+          drawFigure(ctx, fig, rt);
+        } else {
+          POSES.talk(ctx, p, (rt*0.5)%1);
+        }
+      });
+    }
+  }
+  // lights out in the basement
+  if (INTERACT.lightsT>0 && rt-INTERACT.lightsT<3.2 && HERO.openT>0.4){
+    const bar=HERO.rooms.find(r=>r.id==='bar');
+    if (bar) put(bar.x+bar.w/2, bar.floorY, ()=>{
+      ctx.fillStyle='rgba(8,8,16,0.85)';
+      ctx.fillRect(-bar.w/2, -bar.h, bar.w, bar.h);
+    });
+  }
+  const hf=CLOCK.hourFloat()%24;   // continuous time: choreography must not stutter
+  // the keg escape — Friday, 4:25 PM, gravity wins
+  if (d.dow===4 && hf>=16.42 && hf<16.62 && HERO.openT<0.5){
+    const pr=(hf-16.42)/0.2;
+    const kx=hx+80-pr*1500;
+    put(kx, 24, ()=>{
+      ctx.save(); ctx.rotate(Math.sin(pr*44)*0.16); ctx.translate(0,2);
+      PROPS.keg(ctx); ctx.restore();
+      // speed lines, the universal language
+      ctx.strokeStyle='rgba(58,47,38,0.4)'; ctx.lineWidth=1.6;
+      for (let i=0;i<3;i++){
+        ctx.beginPath(); ctx.moveTo(14+i*7,-6-i*4); ctx.lineTo(30+i*9,-6-i*4); ctx.stroke();
+      }
+    });
+    const wk=Math.floor(d.dayAbs/7);
+    for (let ci=0;ci<2;ci++){
+      const p=PEOPLE[HERO.h.roster[Math.floor(hash01(wk,330+ci)*HERO.h.roster.length)]];
+      if (!p) continue;
+      put(kx+90+ci*66, 24, ()=>{
+        ctx.scale(p.wScale,p.hScale);
+        const fig={pid:p.pid, dir:-1, phase:rt*3.4+ci, polo:p.polo, skin:p.skin,
+          hair:p.hair, hat:p.hat, female:false};
+        drawFigure(ctx, fig, rt);
+      });
+    }
+    const kk='keg'+d.dayAbs;
+    if (!INTERACT[kk] && pr>0.1 && CAM.z>0.4){
+      INTERACT[kk]=1;
+      sayAt('ROW', kx+120, 24-72, 'THE KEG IS LOOSE.', {dur:3});
+      setTimeout(()=>{ sayAt('ROW', hx-660, 24-72, 'It’s headed for the river!', {dur:3}); }, 4200);
+    }
+  }
+  // the mattress surf — Saturday, 11:03 PM, the stairs become a venue
+  if (d.dow===5 && hf>=23.05 && hf<23.2 && HERO.openT>0.4){
+    const pr=clamp((hf-23.05)/0.11,0,1);
+    const mxw=lerp(L+178, L+140, pr), myw=lerp(-72, -21, pr);
+    put(mxw, myw, ()=>{
+      ctx.rotate(0.5*(1-pr*0.6));
+      ctx.fillStyle='#efe7d2';
+      ctx.beginPath(); ctx.roundRect(-16,-4,34,8,3); ctx.fill();
+      ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.3; ctx.stroke();
+      ctx.translate(2,-4); ctx.scale(0.8,0.8);
+      const wk=Math.floor(d.dayAbs/7);
+      const p=PEOPLE[HERO.h.roster[Math.floor(hash01(wk,333)*HERO.h.roster.length)]];
+      if (p) POSES.highfive(ctx, p, (rt*0.7)%1);   // arms up the whole way down
+    });
+    const mk='mat'+d.dayAbs;
+    if (!INTERACT[mk] && pr>0.75 && CAM.z>0.6){
+      INTERACT[mk]=1;
+      sayAt('ROW', L+150, -80, '(unanimous 10s from the judges)', {dur:3.4});
+    }
+  }
+}
+
+// the dog remembers who pets him
+const _dogTick0=dogTick;
+dogTick=function(dt){
+  if (DOG.happy && performance.now()/1000<DOG.happy){
+    const want=clamp(CAM.x*BAND.ROW.pf, 500, 4500);
+    if (Math.abs(want-DOG.x)>60) DOG.dir=want>DOG.x?1:-1;
+  }
+  _dogTick0(dt);
+};
+const _drawDog0=drawDog;
+drawDog=function(ctx){
+  _drawDog0(ctx);
+  if (DOG.happy && performance.now()/1000<DOG.happy && HERO.openT<0.85){
+    const sx=projX(BAND.ROW, DOG.x), gy=groundY(BAND.ROW);
+    const bob=Math.sin(performance.now()*0.004)*2;
+    ctx.save();
+    ctx.translate(sx+8*CAM.z, gy+(2)*CAM.z+bob-14*CAM.z);
+    ctx.scale(CAM.z,CAM.z);
+    ctx.fillStyle='#e05a6a';
+    ctx.beginPath();
+    ctx.arc(-2,-2,2.6,0,7); ctx.arc(2.6,-2,2.6,0,7);
+    ctx.moveTo(-4.4,-0.6); ctx.lineTo(0,4.6); ctx.lineTo(5,-0.6);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+};
+
+// grill + wall phone props
+PROPS.grill=function(ctx,v,t){
+  ctx.fillStyle='#2e2a26';
+  ctx.beginPath(); ctx.ellipse(0,-14,11,5,0,0,7); ctx.fill();
+  ctx.fillRect(-11,-14,22,4);
+  ctx.strokeStyle=PAL.ink; ctx.lineWidth=1.1;
+  ctx.beginPath(); ctx.ellipse(0,-14,11,5,0,0,7); ctx.stroke();
+  ctx.strokeStyle='#3a3430'; ctx.lineWidth=1.8;
+  ctx.beginPath(); ctx.moveTo(-7,-10); ctx.lineTo(-9,0); ctx.moveTo(7,-10); ctx.lineTo(9,0); ctx.stroke();
+  if (v===1){
+    // the flare-up, winning briefly
+    const fl=1+Math.sin((t||0)*11)*0.3;
+    for (const [ox,h2,col] of [[-4,10,'#e8842a'],[0,15,'#f0a03a'],[4,9,'#e8842a']]){
+      ctx.fillStyle=col;
+      ctx.beginPath();
+      ctx.moveTo(ox-2.6,-17);
+      ctx.quadraticCurveTo(ox, -17-h2*fl, ox+2.6, -17);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+};
+PROPS.wallphone=function(ctx){
+  ctx.fillStyle='#8a7a5a'; ctx.fillRect(-4,-9,8,13);
+  ctx.strokeStyle=PAL.ink; ctx.lineWidth=1; ctx.strokeRect(-4,-9,8,13);
+  ctx.fillStyle='#2a2a2e'; ctx.fillRect(-2.6,-7,5.2,7);
+  ctx.strokeStyle='#2a2a2e'; ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(3,3); ctx.quadraticCurveTo(7,6,5,10); ctx.stroke();
+};
+
+// the grill learns somebody's name
+VIGS.push(
+ { id:'grillfire', room:'lawn', when:[12,14.6], dows:[5,6], wt:2, cast:[
+    {tag:'grillMarshal',pose:'stand',dx:-26,face:1},{pose:'stand',dx:6,face:-1}],
+   props:[['grill',-10,0,1]],
+   script:[
+    {at:4,ci:0,t:['Stand back, gentlemen. The grill respects command.','Flame’s a little tall. That’s flavor.']},
+    {at:12,ci:1,t:['WOA— (a fireball, briefly, wins)','(eyebrows: mostly gone. legend: fully born.)']},
+    {at:21,ci:0,t:['…That’s Sparky now. Forever.','Someone log it in the minutes: Sparky.']} ]}
 );
 
 /*==APPEND==*/
