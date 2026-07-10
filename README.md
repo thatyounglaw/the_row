@@ -35,18 +35,26 @@ Things worth finding:
   napper. That's how you learn who's who.
 - **The dog.** It belongs to no one and everyone.
 
+## Sound
+
+Everything you hear is synthesized in code — no samples. Crickets after dark, the dawn
+chorus, church bells on Sunday, somebody's mower on Saturday morning, the river when you
+pull back, rain when the weather turns. And the good one: on party nights there's a
+muffled thump in the distance, and as you drift toward the house the filter opens — gain,
+highs, crowd murmur — like the basement door swinging wide. Sound starts on your first
+click (browsers insist); the ♪ chip bottom-right mutes and sets volume.
+
 ## Status
 
-v2 is mid-build (phases P1–P4 of 5 shipped): the cel-cartoon art style, the hero-house
-dollhouse with ~50 authored vignettes, the town/river bands, weekend parties, the time
-dial — and now the cast: running gags (the hooded figure on Thursday nights, the ladder
-guy, the pizza oracle, the migrating couch, the flamingo), the **acts** drawer (strikes,
+v2 is feature-complete (phases P1–P5 shipped): the cel-cartoon art style, the hero-house
+dollhouse with 65 authored vignettes, the town/river bands, weekend parties, the time
+dial, the cast — running gags (the hooded figure on Thursday nights, the ladder guy, the
+pizza oracle, the migrating couch, the flamingo), the **acts** drawer (strikes,
 forgiveness, rain, Cupid, prank wars, alumni money, marching cadets), Fancy Dress with
 yearly themes, the Mock Convention parade with rented elephants every fourth winter,
-sorority porch life, town walkers, river tubers, the Traveller shuttle, and the
-click-the-frame composite viewer. Coming in P5: synthesized ambient sound (crickets,
-church bells, and the muffled thump that gets louder as you approach a party), more
-vignettes, and polish. v1 — a full 3D ambient-sim take on the same world — lives in git
-history.
+sorority porch life, town walkers, river tubers, the Traveller shuttle, the
+click-the-frame composite viewer — and the synthesized soundscape, with a measured
+degrade ladder for slower machines. The vignette library keeps growing from here.
+v1 — a full 3D ambient-sim take on the same world — lives in git history.
 
 The design doc heritage is in [`The Row - Game Design Document.md`](./The%20Row%20-%20Game%20Design%20Document.md).

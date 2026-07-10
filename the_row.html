@@ -42,6 +42,17 @@
     background:rgba(250,243,226,.85); border:1px solid rgba(58,47,38,.45); border-radius:3px; padding:1px 7px;
   }
   #speedchips button.on { background:#3a2f26; color:#f4ead6; }
+  #soundchip {
+    position:absolute; bottom:44px; right:74px; z-index:20; display:flex; align-items:center; gap:6px;
+  }
+  #soundchip button {
+    font-family:Georgia, serif; font-size:13px; color:#3a2f26; cursor:pointer;
+    background:rgba(250,243,226,.9); border:1px solid rgba(58,47,38,.5); border-radius:3px;
+    padding:1px 9px;
+  }
+  #soundchip input[type=range] {
+    width:64px; accent-color:#3a2f26; cursor:pointer;
+  }
   #nudge {
     position:absolute; bottom:14px; left:50%; transform:translateX(-140px); z-index:18;
     max-width:340px; display:none; pointer-events:auto; cursor:pointer;
@@ -1256,7 +1267,7 @@ function drawBirds(ctx, rt){
 const view={w:0,h:0,dpr:1};
 let cv, cx2d;
 function resize(){
-  view.dpr=Math.min(window.devicePixelRatio||1, 2);
+  view.dpr=Math.min(window.devicePixelRatio||1, view.dprCap||2);
   view.w=window.innerWidth; view.h=window.innerHeight;
   cv.width=view.w*view.dpr; cv.height=view.h*view.dpr;
   cv.style.width=view.w+'px'; cv.style.height=view.h+'px';
@@ -1308,12 +1319,15 @@ function frame(ts){
   // clock
   CLOCK.frac+=dt*CLOCK.speed/15;
   while (CLOCK.frac>=1){ CLOCK.frac-=1; CLOCK.t++; }
-  // camera easing
-  const k=1-Math.exp(-dt*6);
+  // camera easing (a long slow settle on boot, brisk afterward)
+  const k=1-Math.exp(-dt*(CAM.settle>0?1.5:6));
+  if (CAM.settle>0) CAM.settle-=dt;
   CAM.x+=(CAM.tx-CAM.x)*k; CAM.z+=(CAM.tz-CAM.z)*k;
   CAM.yStage=camYStage();
   figTick(dt, rt);
   specialsTick(dt, rt);
+  audioTick(dt, rt);
+  perfTick(dt);
   // ---- draw
   const ctx=cx2d;
   ctx.setTransform(view.dpr,0,0,view.dpr,0,0);
@@ -1423,10 +1437,12 @@ function boot(){
   actsInit();
   nudgeInit();
   compInit();
+  audioInit();
   for (let i=0;i<9;i++) FIGS.push(makeWalker(i+1));
-  // Friday, September 12, golden hour
+  // Friday, September 12, golden hour — drift in like a postcard settling
   CLOCK.t=11*TICKS_PER_DAY+Math.floor(18.7*4);
   CLOCK.speed=1.2;
+  CAM.z=0.24; CAM.settle=2.4;
   bindInput();
   document.getElementById('reseed').onclick=()=>{ location.hash='#s='+Math.random().toString(36).slice(2,8); };
   document.getElementById('copylink').onclick=()=>{
@@ -2615,7 +2631,8 @@ function drawParties(ctx, rt){
     const hx=pt.h.x;
     const sx=projX(band,hx);
     if (sx<-400||sx>view.w+400) continue;
-    const n=(pt.big?14:8)+(ACTS.perfectDay===CLOCK.derive().dayAbs?5:0);
+    let n=(pt.big?14:8)+(ACTS.perfectDay===CLOCK.derive().dayAbs?5:0);
+    if (PERF.rung>=2) n=Math.min(n,7);
     for (let i=0;i<n;i++){
       const off=(hash01(hx,i,1)-0.5)*(pt.big?300:220);
       const ax=hx+off;
@@ -3768,6 +3785,302 @@ const PORCH_SETS={
 const PRANK_PORCH=[
   { poses:['stand','stand'], dx:[-92,-64], lines:['Forty flamingos. FORTY.','The sign says FOR SALE. We are NOT for sale.','This means war. Organized, hilarious war.'] },
 ];
+
+// ==== §22 P5: SHINE & SOUND =================================================
+// A fully synthesized ambience — no assets, no samples. Every sound is math.
+
+const AUDIO={ ctx:null, master:null, started:false, muted:false, vol:0.7,
+  g:{}, wall:null, partyBus:null, nextBeat:0, lastBell:'', dbg:{} };
+
+function audioInit(){
+  // the chip: mute + volume, always visible
+  const chip=document.createElement('div');
+  chip.id='soundchip'; chip.className='hud';
+  chip.innerHTML='<button id="mutebtn" title="sound">♪</button>'+
+    '<input id="volslider" type="range" min="0" max="1" step="0.05" value="0.7">';
+  document.body.appendChild(chip);
+  chip.style.pointerEvents='auto';
+  document.getElementById('mutebtn').onclick=()=>{
+    AUDIO.muted=!AUDIO.muted;
+    document.getElementById('mutebtn').textContent=AUDIO.muted?'∅':'♪';
+    if (AUDIO.master) AUDIO.master.gain.value=AUDIO.muted?0:AUDIO.vol;
+  };
+  document.getElementById('volslider').oninput=e=>{
+    AUDIO.vol=parseFloat(e.target.value);
+    if (AUDIO.master && !AUDIO.muted) AUDIO.master.gain.value=AUDIO.vol;
+  };
+  // browsers demand a gesture before sound; take the first one offered
+  const kick=()=>{
+    if (!AUDIO.started){ try{ audioStart(); }catch(e){} }
+    window.removeEventListener('pointerdown', kick);
+    window.removeEventListener('keydown', kick);
+  };
+  window.addEventListener('pointerdown', kick);
+  window.addEventListener('keydown', kick);
+}
+function audioStart(){
+  const C=new (window.AudioContext||window.webkitAudioContext)();
+  AUDIO.ctx=C; AUDIO.started=true;
+  const master=C.createGain();
+  master.gain.value=AUDIO.muted?0:AUDIO.vol;
+  master.connect(C.destination);
+  AUDIO.master=master;
+  // a looping buffer, filled by a little generator
+  const loop=(secs, fill, dest)=>{
+    const b=C.createBuffer(1, Math.floor(secs*C.sampleRate), C.sampleRate);
+    fill(b.getChannelData(0), C.sampleRate);
+    const s=C.createBufferSource(); s.buffer=b; s.loop=true;
+    const g=C.createGain(); g.gain.value=0;
+    s.connect(g); g.connect(dest||master); s.start();
+    return g;
+  };
+  // crickets: pulsed chirp trains around 4.3 kHz
+  AUDIO.g.crickets=loop(3.1,(d,sr)=>{
+    for (let i=0;i<d.length;i++){
+      const t=i/sr;
+      const train=(t%0.43)<0.26;
+      const pulse=Math.sin(2*Math.PI*24*t)>0.15;
+      const chirp=Math.sin(2*Math.PI*4300*t)*0.5+Math.sin(2*Math.PI*4650*t+1.3)*0.22;
+      d[i]=(train&&pulse)? chirp*0.3*(0.75+0.25*Math.sin(2*Math.PI*0.9*t)) : 0;
+    }
+  });
+  // dawn birds: sparse frequency-swept chirps
+  AUDIO.g.birds=loop(4.8,(d,sr)=>{
+    for (let k=0;k<15;k++){
+      const st=Math.random()*4.4, dur=0.08+Math.random()*0.15;
+      const f0=2200+Math.random()*1800, f1=f0+(Math.random()*1400-500);
+      const s0=Math.floor(st*sr), n=Math.floor(dur*sr);
+      for (let i=0;i<n && s0+i<d.length;i++){
+        const t=i/sr, p=i/n;
+        d[s0+i]+=Math.sin(2*Math.PI*(f0+(f1-f0)*p)*t)*Math.sin(Math.PI*p)*0.2;
+      }
+    }
+  });
+  // the river: brown-ish noise, felt more than heard
+  AUDIO.g.river=loop(2.0,(d)=>{
+    let v=0;
+    for (let i=0;i<d.length;i++){ v=v*0.972+(Math.random()*2-1)*0.05; d[i]=v*2.0; }
+  });
+  // rain: brighter wash
+  AUDIO.g.rain=loop(1.7,(d)=>{
+    let v=0;
+    for (let i=0;i<d.length;i++){ v=v*0.6+(Math.random()*2-1)*0.4; d[i]=v*0.32; }
+  });
+  // the Saturday mower, streets away
+  const mowOsc=C.createOscillator(); mowOsc.type='sawtooth'; mowOsc.frequency.value=84;
+  const mowLfo=C.createOscillator(); mowLfo.frequency.value=0.7;
+  const mowLfoG=C.createGain(); mowLfoG.gain.value=6;
+  mowLfo.connect(mowLfoG); mowLfoG.connect(mowOsc.frequency);
+  const mowF=C.createBiquadFilter(); mowF.type='lowpass'; mowF.frequency.value=300;
+  const mowG=C.createGain(); mowG.gain.value=0;
+  mowOsc.connect(mowF); mowF.connect(mowG); mowG.connect(master);
+  mowOsc.start(); mowLfo.start();
+  AUDIO.g.mower=mowG;
+  // the party bus: everything a basement produces, behind one lowpass "wall".
+  // walking toward the house literally opens the filter — the door, opening.
+  const wall=C.createBiquadFilter(); wall.type='lowpass'; wall.frequency.value=130;
+  const partyG=C.createGain(); partyG.gain.value=0;
+  wall.connect(partyG); partyG.connect(master);
+  AUDIO.partyBus=wall; AUDIO.g.party=partyG; AUDIO.wall=wall;
+  // crowd murmur lives inside the party bus
+  AUDIO.g.murmur=loop(2.3,(d)=>{
+    let v=0;
+    for (let i=0;i<d.length;i++){ v=v*0.988+(Math.random()*2-1)*0.03; d[i]=v*2.6; }
+  }, wall);
+}
+function bellTone(t){
+  const C=AUDIO.ctx;
+  const g=C.createGain();
+  g.gain.setValueAtTime(0.22,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+3.4);
+  g.connect(AUDIO.master);
+  for (const [m,a] of [[1,1],[2.01,0.45],[2.74,0.26],[4.52,0.1]]){
+    const o=C.createOscillator(); o.frequency.value=196*m;
+    const og=C.createGain(); og.gain.value=a*0.25;
+    o.connect(og); og.connect(g);
+    o.start(t); o.stop(t+3.6);
+  }
+}
+function audioTick(dt, rt){
+  if (!AUDIO.started) return;
+  const C=AUDIO.ctx;
+  if (C.state==='suspended'){ C.resume(); return; }
+  const d=CLOCK.derive();
+  const hr=CLOCK.hourFloat()%24;
+  const raining=ACTS.rainDay===d.dayAbs;
+  const ease=(g,t)=>{ if (g) g.gain.value+=(t-g.gain.value)*Math.min(1,dt*2.5); };
+  const night=clamp(hr>18.5 ? (hr-18.5)/1.4 : hr<6.4 ? (6.4-hr)/1.2 : 0, 0, 1);
+  const dawn=(hr>5.2&&hr<9) ? Math.sin(Math.PI*(hr-5.2)/3.8) : 0;
+  const zoomOut=clamp((0.75-CAM.z)/0.5, 0, 1);
+  ease(AUDIO.g.crickets, night*0.42*(raining?0.15:1));
+  ease(AUDIO.g.birds, dawn*0.45*(raining?0.25:1));
+  ease(AUDIO.g.river, (0.05+zoomOut*0.24)*(raining?0.5:1));
+  ease(AUDIO.g.rain, raining?0.4:0);
+  ease(AUDIO.g.mower, (d.dow===5 && hr>9 && hr<11.6 && !raining) ? 0.045+0.02*Math.sin(rt*0.9) : 0);
+  // the muffled thump: proximity in screens to the nearest live party
+  let best=null, bd=1e9;
+  if (partyHour()){
+    const screenWu=view.w/Math.max(0.001,CAM.z);
+    for (const pt of partiesTonight()){
+      const dist=Math.abs(pt.h.x - CAM.x*BAND.ROW.pf)/screenWu;
+      if (dist<bd){ bd=dist; best=pt; }
+    }
+  }
+  const prox=best ? clamp(1-bd/2.2, 0, 1) : 0;
+  const lean=clamp((CAM.z-0.45)/1.5, 0, 1);
+  const open=prox*(0.3+0.7*lean);
+  AUDIO.dbg={open, prox, big:!!(best&&best.big)};
+  ease(AUDIO.g.party, open*0.55*(best&&best.big?1.2:1));
+  ease(AUDIO.g.murmur, open*open*0.5);
+  if (AUDIO.wall)
+    AUDIO.wall.frequency.value+=((120+open*880+(best&&best.big?160:0))-AUDIO.wall.frequency.value)*Math.min(1,dt*3);
+  // schedule the kick pattern a beat ahead
+  if (best && open>0.02){
+    const spb=60/(best.big?118:124);
+    if (AUDIO.nextBeat<C.currentTime) AUDIO.nextBeat=C.currentTime+0.05;
+    while (AUDIO.nextBeat<C.currentTime+0.4){
+      const t=AUDIO.nextBeat;
+      const o=C.createOscillator(), g=C.createGain();
+      o.frequency.setValueAtTime(140,t);
+      o.frequency.exponentialRampToValueAtTime(46,t+0.09);
+      g.gain.setValueAtTime(0.8,t);
+      g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
+      o.connect(g); g.connect(AUDIO.partyBus);
+      o.start(t); o.stop(t+0.28);
+      AUDIO.nextBeat+=spb;
+    }
+  }
+  // church bells: Sunday 11 AM and 6 PM
+  if (d.dow===6){
+    const slot=(hr>=11&&hr<11.35)?11:(hr>=18&&hr<18.35)?18:0;
+    const key=d.dayAbs+':'+slot;
+    if (slot && AUDIO.lastBell!==key){
+      AUDIO.lastBell=key;
+      for (let i=0;i<6;i++) bellTone(C.currentTime+0.2+i*1.7);
+    }
+  }
+}
+
+// ---- the degrade ladder (measured, two rungs, quiet about it) ---------------
+const PERF={acc:0, n:0, rung:0};
+function perfTick(dt){
+  PERF.acc+=dt; PERF.n++;
+  if (PERF.n<120) return;
+  const avg=PERF.acc/PERF.n;
+  PERF.acc=0; PERF.n=0;
+  if (PERF.rung===0 && avg>0.026){ PERF.rung=1; view.dprCap=1.25; resize(); }
+  else if (PERF.rung===1 && avg>0.032){ PERF.rung=2; }
+}
+
+// ---- P5 vignettes: any Tuesday, watchable -----------------------------------
+AWAYS.push(
+  'away msg: at the gym (the porch)',
+  'away msg: if urgent, yell toward the Row',
+  'away msg: laundry day. wearing the blazer. only the blazer was clean.',
+  'away msg: bio lab. allegedly.'
+);
+HEYS.push('Hey hey.','There he is!','Ma’am.','Coach.');
+PARTY_LINES.push('The keg math held!','Whose dog is this? (everyone’s)','This song? Again? YES.');
+RAGER_LINES.push('Ledbetter means it’s almost over. Nobody leave.','The solo is COMING. Positions.');
+SOR_LINES.push(
+  'Founders’ tea is Sunday. Practice your smile.',
+  'His away message quoted Dave. It’s basically a love letter.'
+);
+VIGS.push(
+ // basement
+ { id:'stoolcouncil', room:'bar', when:[21,24.5], dows:[0,1,2], wt:1.6, cast:[
+    {tag:'porchFixture',pose:'drink',dx:-112,face:1},{pose:'drink',dx:-86,face:-1}],
+   script:[
+    {at:5,ci:0,t:['The two-party system, Craig. Pong and foosball.','A Tuesday beer is a philosophical position.']},
+    {at:16,ci:1,t:['You should run for office.','I AM the office.']} ]},
+ { id:'inventory', room:'bar', when:[17,19], dows:[6], wt:1.8, cast:[
+    {pose:'stand',dx:-46,face:1},{pose:'read',dx:-16,face:-1}],
+   script:[
+    {at:5,ci:0,t:['Count it again. The weekend was thorough.','The Beast: 41 cans. Morale: high.']},
+    {at:16,ci:1,t:['Ledger says we owe the ledger.','Write down “miscellaneous.” It covers everything.']} ]},
+ // TV room
+ { id:'madden', room:'tv', when:[20,24.5], dows:[1,2], wt:1.6, cast:[
+    {tag:'auxHog',pose:'couch',dx:-64,face:1},{pose:'couch',dx:-42,face:1}],
+   script:[
+    {at:5,ci:0,t:['Fourth and one. You KNOW what’s coming.','HB dive. HB dive. HB di— TOUCHDOWN.']},
+    {at:16,ci:1,t:['Pause it. PAUSE it. The pizza’s here.','You drafted a punter in round two. Live with it.']} ]},
+ { id:'infomercial', room:'tv', when:[26,28.5], wt:1.4, cast:[
+    {tag:'cerealMonk',pose:'couch',dx:-52,face:1}],
+   script:[
+    {at:6,ci:0,t:['we need the Magic Bullet. we need it for the house.','three easy payments. that’s… nothing. that’s free.'],think:true},
+    {at:18,ci:0,t:['it dices. craig. it DICES.','(reaching for the house phone) (stopping) (reaching)'],think:true} ]},
+ // kitchen
+ { id:'sandwichsummit', room:'kitchen', when:[14,16], wt:1.4, cast:[
+    {tag:'grillMarshal',pose:'stand',dx:52,face:-1},{pose:'stand',dx:82,face:-1}],
+   script:[
+    {at:5,ci:0,t:['A sandwich is architecture. Respect the load path.','Mayo is the mortar. This is settled science.']},
+    {at:16,ci:1,t:['It’s 2 PM and this is dinner.','Cut it diagonal. We’re not animals.']} ]},
+ { id:'dishnight', room:'kitchen', when:[19,20.2], dows:[0], wt:2, cast:[
+    {pose:'stand',dx:40,face:-1},{pose:'stand',dx:66,face:-1}],
+   script:[
+    {at:5,ci:0,t:['Pledge duty: the Sunday dishes. All of Sunday’s dishes.','The pot from the chili. Godspeed.']},
+    {at:16,ci:1,t:['Character, they said.','The sponge has given all it can.']} ]},
+ // bedroom
+ { id:'phonehome', room:'bedA', when:[17,19], dows:[6], wt:1.8, cast:[
+    {pose:'sit',dx:20,face:1}],
+   script:[
+    {at:5,ci:0,t:['Yes ma’am. Studying. Right now, actually.','Grades are… trending. Trending is the word.']},
+    {at:16,ci:0,t:['Tell Dad the game was— he saw it. Okay.','Love you too, Ma. (quietly, so the hall won’t hear)']} ]},
+ { id:'alarmwar', room:'bedA', when:[8,9.6], dows:[0,1,2,3,4], wt:1.6, cast:[
+    {tag:'napper',pose:'sleep',dx:-38}],
+   script:[
+    {at:6,ci:0,t:['the 8:30 alarm was a mistake. the 9:05 was a mistake.','class is a suggestion the registrar makes.'],think:true} ]},
+ // chapter room
+ { id:'ritualprep', room:'chapter', when:[19.4,20.4], dows:[0], wt:2.4, cast:[
+    {pose:'stand',dx:12,face:1},{pose:'stand',dx:36,face:-1}],
+   script:[
+    {at:4,ci:0,t:['Places, gentlemen. Solemnity in five.','Candles. Robes. Absolutely no giggling this week.']},
+    {at:13,ci:1,t:['The blinds drop at half past. Sharp.','If the pledges peek, restart the whole thing.']} ]},
+ { id:'compositeday', room:'chapter', when:[14,16], dows:[2], wt:1.2, cast:[
+    {pose:'stand',dx:10,face:1},{pose:'stand',dx:38,face:-1}],
+   script:[
+    {at:5,ci:0,t:['Blazer. Smile. Legacy.','The photographer says “natural.” Impossible request.']},
+    {at:16,ci:1,t:['Dad’s composite face took him four years to perfect.','This photo outlives us all. No pressure.']} ]},
+ // tapestry room
+ { id:'incense', room:'tapes', when:[20,24.5], wt:1.4, cast:[
+    {tag:'noodler',pose:'beanbagSit',dx:8},{tag:'tapehead',pose:'beanbagSit',dx:44}],
+   script:[
+    {at:5,ci:0,t:['The RA can smell nothing. This is sandalwood. A legal scent.','The tapestry absorbs. The tapestry forgives.']},
+    {at:16,ci:1,t:['Put on disc two. The one that heals.','This room is a system, man. Don’t disturb the system.']} ]},
+ // roof
+ { id:'stargaze', room:'roof', when:[23,26.5], wt:1.6, cast:[
+    {pose:'sit',dx:-30,face:1},{pose:'sit',dx:14,face:-1}],
+   script:[
+    {at:5,ci:0,t:['That one’s Orion. That one’s… also an airplane.','The stars over Lexford hit different. (they’re the same stars) Different.']},
+    {at:16,ci:1,t:['Make a wish. (already did, in September. still pending.)','You can see the drive-in from here. Barely. Save it.']} ]},
+ { id:'coolersummit', room:'roof', when:[17,19], dows:[4], wt:2, cast:[
+    {pose:'sit',dx:-30,face:1},{tag:'pokerShark',pose:'sit',dx:14,face:-1}],
+   script:[
+    {at:5,ci:0,t:['Logistics win weekends, gentlemen. Ice by five.','Two coolers. One decoy. Standard formation.']},
+    {at:16,ci:1,t:['Who has the truck? (Bones.) Who has Bones?','The plan is simple, which is why it will fail beautifully.']} ]},
+ // porch
+ { id:'mailwatch', room:'porch', when:[10,12], dows:[0,1,2,3,4], wt:1.4, cast:[
+    {pose:'couch',dx:110,face:-1}],
+   script:[
+    {at:6,ci:0,t:['The catalog said four to six weeks. This is week five.','It’s a hammock. When it comes, everything changes.']},
+    {at:18,ci:0,t:['(the mail truck slows… and passes) (agony)','Tomorrow. Tomorrow is the day. I can feel it.']} ]},
+ { id:'freshtour', room:'porch', when:[11,13.5], dows:[5], wt:1.6, cast:[
+    {tag:'porchFixture',pose:'stand',dx:-96,face:1},{pose:'stand',dx:-68,face:-1}],
+   script:[
+    {at:5,ci:0,t:['And THIS is the couch. (reverent silence)','The tour ends here because everything ends here.']},
+    {at:16,ci:1,t:['Does it come with the house? (son, the house comes with IT.)','You’ll understand senior year. Or sooner, if you’re lucky.']} ]},
+ // lawn & driveway
+ { id:'mowerduel', room:'lawn', when:[9,11.4], dows:[5], wt:1.8, cast:[
+    {pose:'stand',dx:-40,face:1},{pose:'stand',dx:4,face:-1}],
+   script:[
+    {at:5,ci:0,t:['You missed a strip. (I know. It’s art.)','Diagonal lines, baby. Like the pros.']},
+    {at:16,ci:1,t:['The mower is louder than the rager was.','Miss O said make it nice for Sunday. So it WILL be nice.']} ]},
+ { id:'freethrows', room:'hoop', when:[19,21], dows:[1,2], wt:1.4, cast:[
+    {tag:'horseChamp',pose:'pongThrow',dx:-20,face:1}],
+   script:[
+    {at:6,ci:0,t:['For the championship. (it’s Tuesday.) For the CHAMPIONSHIP.','Ninety-eight… ninety-nine… wait. Start over.']},
+    {at:18,ci:0,t:['The lamp is the defender. The lamp never blinks.','(swish) (nobody saw) (it still counts)']} ]}
+);
 
 /*==APPEND==*/
 boot();
