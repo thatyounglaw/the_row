@@ -86,6 +86,10 @@
     background:#f4ead6; border:10px solid #4a3220; border-radius:2px; box-shadow:0 14px 50px rgba(0,0,0,.5);
     padding:14px 18px; cursor:pointer;
   }
+  body.night #title, body.night #datechip, body.night #hint {
+    color:#e8dfc8; text-shadow:0 1px 2px rgba(20,20,40,.5);
+  }
+  body.night #seedchip { color:#e8dfc8; }
   #loading {
     position:absolute; inset:0; z-index:50; display:flex; flex-direction:column; align-items:center; justify-content:center;
     background:#f4ead6; color:#3a2f26; font-family:Georgia, serif; transition:opacity .7s;
@@ -112,9 +116,8 @@
 // ==== §1 CONFIG & PALETTE ===================================================
 const CFG = {
   PERSON_H: 56,             // world units; 1 wu = 1 px at zoom 1
-  ZMIN: 0.16, ZMAX: 3.0,
   TILE: 1024,               // bake tile width in px
-  BUCKETS: [0.25, 0.5, 1, 2],
+  BUCKETS: [0.25, 0.5, 1, 2, 3],
   TILE_CACHE_MAX: 64,
 };
 const PAL = {
@@ -133,15 +136,15 @@ const PAL = {
   sky: {
     // hour stops: [hour, topColor, horizonColor, tint(multiply), glowAlpha]
     stops: [
-      [0.0,  '#232a48','#3a4468','#46507a', 1.0],
-      [5.0,  '#2a3153','#4a4a72','#6a6a8e', 0.9],
+      [0.0,  '#1f2745','#384268','#3e4a80', 1.0],
+      [5.0,  '#283052','#48486f','#5c6296', 0.9],
       [6.6,  '#7d8bb0','#f2b98a','#ffd9b0', 0.35],
       [9.0,  '#7fb0e0','#dcebf2','#fff4dd', 0.0],
       [13.0, '#6f9ed6','#d6e6ec','#ffffff', 0.0],
       [17.0, '#7fa0d0','#ffd9a0','#ffedc2', 0.0],
       [18.9, '#7a89b8','#ffb87a','#eda775', 0.35],
-      [20.1, '#3d4370','#8a6a92','#8d7a9e', 0.8],
-      [24.0, '#232a48','#3a4468','#46507a', 1.0],
+      [20.1, '#3a4370','#7f6c96','#8678a8', 0.8],
+      [24.0, '#1f2745','#384268','#3e4a80', 1.0],
     ],
   },
 };
@@ -315,11 +318,25 @@ const BAND = {}; for (const b of BANDS) BAND[b.id]=b;
 const CAM = {
   x: 2450, z: 0.62, tx: 2450, tz: 0.62,
   yStage: 640,
-  minX: 300, maxX: 4700,
+  dragging: false, velX: 0, fade: 0, settle: 0,
 };
+// Every reachable camera state is a composed shot: zoom bounds derive from the
+// viewport, pan bounds derive from zoom, and the vertical rail has three acts.
+const WORLD_L=-250, WORLD_R=5150;               // the viewable ends of the valley
+const RIVER_BOT=BAND.RIVER.gy+BAND.RIVER.botWu; // world-y of the river's bottom edge
+function zMinDyn(){ return clamp(view.h/2100, 0.38, 0.55); }   // valley fills the frame
+function zMaxDyn(){ return clamp(view.h*0.86/330, 2.2, 3.2); } // dollhouse fills the frame
+function camMinX(z){ return (WORLD_L + view.w*0.5/z)/BAND.ROW.pf; }
+function camMaxX(z){ return (WORLD_R - view.w*0.5/z)/BAND.ROW.pf; }
 function camYStage(){
-  // poster centers the stage; zooming leans down onto the Row
-  return lerp(660, BAND.ROW.gy - 300/CAM.z, smoothstep(0.3, 1.1, CAM.z));
+  const z=CAM.z, h=view.h;
+  // act 1→2: the poster rises into the street…
+  const street=lerp(660, BAND.ROW.gy - 300/z, smoothstep(0.34, 1.1, z));
+  // …act 3: the dollhouse takes center stage
+  let y=lerp(street, BAND.ROW.gy - 98, smoothstep(1.3, 2.0, z));
+  // and the frame is always full-bleed: the river's bottom edge never
+  // rises above the sill, so there is no void, ever
+  return Math.min(y, RIVER_BOT - h*0.5/z);
 }
 function groundY(band){ // screen y of a band's ground line
   return (band.gy - CAM.yStage)*CAM.z + view.h*0.5;
@@ -369,8 +386,9 @@ function drawBandTiles(ctx, band){
   const bucket=bucketFor(CAM.z);
   const wuW=CFG.TILE/bucket;
   const xL=unprojX(band,-80), xR=unprojX(band,view.w+80);
-  const iMax=Math.floor(4900/wuW);
-  const i0=Math.max(0,Math.floor(xL/wuW)), i1=Math.min(iMax,Math.floor(xR/wuW));
+  // overscan far past the pan clamps so no band edge is ever on screen
+  const i0=Math.max(Math.floor(-2400/wuW),Math.floor(xL/wuW));
+  const i1=Math.min(Math.floor(9200/wuW),Math.floor(xR/wuW));
   const gy=groundY(band);
   for (let ix=i0; ix<=i1; ix++){
     let t=getTile(band,bucket,ix,true);
@@ -777,6 +795,10 @@ function buildWorld(){
     if (hash01(i,99)<0.15) continue;
     WORLD.trees.push({ x:treeXs[i]+ (hash01(i,3)-0.5)*90, s:0.85+hash01(i,4)*0.5, lean:(hash01(i,5)-0.5)*1.6, id:3000+i*61 });
   }
+  // bookends: the valley keeps going past where you can pan
+  for (const bx of [-420,-180,40,5000,5180,5390]){
+    WORLD.trees.push({ x:bx, s:0.8+hash01(bx,4)*0.5, lean:(hash01(bx,5)-0.5)*1.6, id:3400+((bx+500)|0) });
+  }
   // lamps along the sidewalk
   for (let x=620; x<=4300; x+=460){
     WORLD.lamps.push({x:x+(hash01(x)<0.5?-14:10), y:24});
@@ -1018,19 +1040,23 @@ function drawGlows(ctx, hour, rt){
   const all=WORLD.glows.concat(WORLD.hillGlows);
   for (const g of all){
     const band=BAND[g.band];
+    const fgB=(g.band==='TOWN'||g.band==='RIVER');
+    if (fgB && CAM.fade>0.9) continue;   // their bands have bowed out
     const sx=projX(band, g.x);
     if (sx<-80||sx>view.w+80) continue;
-    const sy=groundY(band)+g.y*CAM.z;
+    const dy=fgB?CAM.fade*view.h*0.6:0;
+    const sy=groundY(band)+g.y*CAM.z+dy;
     const pty = (g.band==='ROW' && g.kind==='window' && typeof houseParty==='function') ? houseParty(g.x) : null;
     const lit = pty ? 1 : (g.kind==='lamp' ? 1 : (hash01(g.x, g.y, Math.floor(hour<12?hour+24:hour))<0.72 ? 1 : 0));
     if (!lit) continue;
     const flick = (0.92+vnoise(rt*0.8, g.x*0.13)*0.16) * (pty ? 1.15+0.18*Math.sin(rt*11+g.x) : 1);
-    const r=(g.kind==='lamp'?46:g.kind==='hillwin'?15:34)*CAM.z*flick;
-    ctx.globalAlpha=ga*(g.kind==='lamp'?0.75:g.kind==='hillwin'?0.3:0.6)*(g.hero?clamp(1-HERO.openT*1.1,0,1):1);
+    const r=(g.kind==='lamp'?58:g.kind==='hillwin'?15:38)*CAM.z*flick;
+    ctx.globalAlpha=ga*(g.kind==='lamp'?0.85:g.kind==='hillwin'?0.3:0.6)
+      *(g.hero?clamp(1-HERO.openT*1.1,0,1):1)*(fgB?1-CAM.fade:1);
     ctx.drawImage(GLOWSPR, sx-r, sy-r, r*2, r*2);
     if (g.kind==='lamp'){
-      ctx.globalAlpha=ga*0.28;
-      ctx.drawImage(GLOWSPR, sx-r*1.4, groundY(band)+18*CAM.z-r*0.5, r*2.8, r);
+      ctx.globalAlpha=ga*0.28*(fgB?1-CAM.fade:1);
+      ctx.drawImage(GLOWSPR, sx-r*1.4, groundY(band)+18*CAM.z+dy-r*0.5, r*2.8, r);
     }
     if (g.kind==='window'){
       // the pane itself goes warm
@@ -1273,21 +1299,37 @@ function resize(){
   cv.style.width=view.w+'px'; cv.style.height=view.h+'px';
 }
 function bindInput(){
-  let dragging=false,lx=0;
-  cv.addEventListener('pointerdown',e=>{ dragging=true; lx=e.clientX; cv.classList.add('dragging'); cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener('pointerup',()=>{ dragging=false; cv.classList.remove('dragging'); });
+  let lx=0, lt=0, vAcc=0;
+  cv.addEventListener('pointerdown',e=>{
+    CAM.dragging=true; CAM.velX=0; vAcc=0;
+    lx=e.clientX; lt=performance.now();
+    cv.classList.add('dragging'); cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointerup',()=>{
+    CAM.dragging=false; CAM.velX=vAcc;
+    cv.classList.remove('dragging');
+  });
   cv.addEventListener('pointermove',e=>{
-    if (!dragging) return;
-    const dx=e.clientX-lx; lx=e.clientX;
-    CAM.tx=clamp(CAM.tx - dx/(CAM.z*BAND.ROW.pf), CAM.minX, CAM.maxX);
+    if (!CAM.dragging) return;
+    const now=performance.now();
+    const dx=e.clientX-lx, dtm=Math.max(8, now-lt);
+    lx=e.clientX; lt=now;
+    const dwu=-dx/(CAM.z*BAND.ROW.pf);
+    // the edge resists, it doesn't wall
+    const lo=camMinX(CAM.tz), hi=camMaxX(CAM.tz);
+    let nx=CAM.tx+dwu;
+    if (nx<lo) nx=lo-(lo-nx)*0.25;
+    if (nx>hi) nx=hi+(nx-hi)*0.25;
+    CAM.tx=nx;
+    vAcc=vAcc*0.6 + (dwu*1000/dtm)*0.4;   // flick velocity, smoothed
   });
   cv.addEventListener('wheel',e=>{
     e.preventDefault();
     const oldZ=CAM.tz;
-    CAM.tz=clamp(CAM.tz*Math.exp(-e.deltaY*0.0013), CFG.ZMIN, CFG.ZMAX);
+    CAM.tz=clamp(CAM.tz*Math.exp(-e.deltaY*0.0013), zMinDyn(), zMaxDyn());
     // zoom toward the cursor (ROW band anchor)
     const wx=(e.clientX-view.w*0.5)/(oldZ)+CAM.tx*BAND.ROW.pf;
-    CAM.tx=clamp((wx-(e.clientX-view.w*0.5)/CAM.tz)/BAND.ROW.pf, CAM.minX, CAM.maxX);
+    CAM.tx=clamp((wx-(e.clientX-view.w*0.5)/CAM.tz)/BAND.ROW.pf, camMinX(CAM.tz), camMaxX(CAM.tz));
   },{passive:false});
   window.addEventListener('resize', resize);
 }
@@ -1297,6 +1339,7 @@ function updateHUD(){
   document.getElementById('d1').textContent=DOW[d.dow]+', '+MONTHS[d.month]+' '+d.dayInMonth;
   const yr=1999+((SEEDH>>>3)%5)+d.year;
   document.getElementById('d2').textContent=h12+':'+mm+' '+(d.hh>=12?'PM':'AM')+' · '+(d.month<4?'fall':'spring')+' semester · '+yr;
+  document.body.classList.toggle('night', glowAlpha(CLOCK.hourFloat()%24)>0.6);
   updateNudge();
 }
 
@@ -1322,8 +1365,23 @@ function frame(ts){
   // camera easing (a long slow settle on boot, brisk afterward)
   const k=1-Math.exp(-dt*(CAM.settle>0?1.5:6));
   if (CAM.settle>0) CAM.settle-=dt;
+  if (!CAM.dragging){
+    // released momentum, then spring back inside bounds
+    if (Math.abs(CAM.velX)>2){ CAM.tx+=CAM.velX*dt; CAM.velX*=Math.exp(-dt*3.2); }
+    const cx=clamp(CAM.tx, camMinX(CAM.tz), camMaxX(CAM.tz));
+    CAM.tx+=(cx-CAM.tx)*Math.min(1,dt*8);
+    // once you lean in, the hero house is gently magnetic —
+    // "zoom into the house" always lands the composed shot
+    if (CAM.z>1.4 && HERO.h){
+      const want=HERO.h.x/BAND.ROW.pf;
+      if (Math.abs(want-CAM.tx)*BAND.ROW.pf*CAM.z<view.w*0.38)
+        CAM.tx+=(want-CAM.tx)*Math.min(1,dt*1.5);
+    }
+  }
+  CAM.tz=clamp(CAM.tz, zMinDyn(), zMaxDyn());
   CAM.x+=(CAM.tx-CAM.x)*k; CAM.z+=(CAM.tz-CAM.z)*k;
   CAM.yStage=camYStage();
+  CAM.fade=smoothstep(1.25, 1.85, CAM.z);   // the foreground bands bow out
   figTick(dt, rt);
   specialsTick(dt, rt);
   audioTick(dt, rt);
@@ -1338,18 +1396,23 @@ function frame(ts){
   stageHero();
   stageOthers();
   HIT.length=0;
-  // hero house focus/open amount
+  // hero house open/closed: a committed state with hysteresis, animated —
+  // never the half-ghost of a fractional focus
   {
-    const sxc=projX(BAND.ROW, HERO.h.x);
-    const focus=1-clamp((Math.abs(sxc-view.w*0.5)-view.w*0.22)/(view.w*0.4),0,1);
-    const target=smoothstep(1.35,2.05,CAM.z)*focus;
-    HERO.openT+=(target-HERO.openT)*Math.min(1,dt*7);
+    const off=Math.abs(projX(BAND.ROW, HERO.h.x)-view.w*0.5);
+    if (!HERO.open && CAM.z>1.55 && off<view.w*0.3) HERO.open=true;
+    if (HERO.open && (CAM.z<1.32 || off>view.w*0.6)) HERO.open=false;
+    HERO.openT+=((HERO.open?1:0)-HERO.openT)*Math.min(1,dt*5);
   }
   for (const b of BANDS){
+    const fg=(b.id==='TOWN'||b.id==='RIVER');
+    if (fg && CAM.fade>0.985) continue;   // theater flats, fully offstage
+    if (fg){ ctx.save(); ctx.globalAlpha=1-CAM.fade; ctx.translate(0, CAM.fade*view.h*0.6); }
     drawBandTiles(ctx, b);
     if (b.id==='HILL') drawHillLife(ctx, rt);
     if (b.id==='TOWN') drawTownLife(ctx, rt);
     if (b.id==='RIVER') drawRiverLife(ctx, rt);
+    if (fg) ctx.restore();
     if (b.id==='ROW'){
       const openT=HERO.openT;
       // world-space dynamic drawing for the hero house
@@ -1385,7 +1448,33 @@ function frame(ts){
     tg.addColorStop(0,'rgba(255,255,255,1)');
     tg.addColorStop(1,sk.tint);
     ctx.fillStyle=tg;
-    ctx.fillRect(0,0,view.w,view.h);
+    if (HERO.openT>0.03 && glowAlpha(hour)>0.02){
+      // the open dollhouse is a lantern — night falls around it, not on it.
+      // the mask is the house's own silhouette, so nothing reads as a rectangle
+      const gy=groundY(BAND.ROW), hx=HERO.h.x;
+      const sil=()=>{
+        ctx.moveTo(projX(BAND.ROW,hx-162), gy+66*CAM.z);
+        ctx.lineTo(projX(BAND.ROW,hx-162), gy-200*CAM.z);
+        ctx.lineTo(projX(BAND.ROW,hx-90),  gy-250*CAM.z);
+        ctx.lineTo(projX(BAND.ROW,hx+90),  gy-250*CAM.z);
+        ctx.lineTo(projX(BAND.ROW,hx+162), gy-200*CAM.z);
+        ctx.lineTo(projX(BAND.ROW,hx+162), gy+66*CAM.z);
+        ctx.closePath();
+      };
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0,0,view.w,view.h); sil();
+      ctx.clip('evenodd');
+      ctx.fillRect(0,0,view.w,view.h);
+      ctx.restore();
+      ctx.save();
+      ctx.beginPath(); sil(); ctx.clip();
+      ctx.globalAlpha=1-HERO.openT*0.75;   // the interior keeps a quarter of the night
+      ctx.fillRect(0,0,view.w,view.h);
+      ctx.restore();
+      ctx.globalAlpha=1;
+    } else {
+      ctx.fillRect(0,0,view.w,view.h);
+    }
     ctx.globalCompositeOperation='source-over';
   }
   if (HERO.openT>0.05){
@@ -1397,7 +1486,7 @@ function frame(ts){
       ctx.globalCompositeOperation='lighter';
       for (const r of HERO.rooms){
         if (r.outdoor) continue;
-        ctx.fillStyle='rgba(255,186,104,'+(0.13*HERO.openT*ga2)+')';
+        ctx.fillStyle='rgba(255,186,104,'+(0.3*HERO.openT*ga2)+')';
         ctx.fillRect(r.x, r.floorY-r.h, r.w, r.h);
       }
       ctx.restore();
@@ -1740,6 +1829,7 @@ function drawWorldBubbles(ctx){
     const b=WBUB[i];
     const age=now-b.t0;
     if (age>b.dur){ WBUB.splice(i,1); continue; }
+    if ((b.band==='TOWN'||b.band==='RIVER') && CAM.fade>0.3){ WBUB.splice(i,1); continue; }
     const band=BAND[b.band];
     const sx=projX(band,b.wx), sy=groundY(band)+b.wy*CAM.z;
     if (sx<-140||sx>view.w+140) continue;
@@ -2496,6 +2586,15 @@ WORLDDRAW.TOWN=function(ctx, x0, x1){
     drawTree(ctx, {x, s:0.55+vnoise(x,7)*0.2, lean:(vnoise(x,8)-0.5), id:9600+x});
     ctx.restore();
   }
+  // and Main Street keeps its trees past both ends of town
+  for (let x=-1400;x<640;x+=260){
+    if (x<x0-160||x>x1+160) continue;
+    drawTree(ctx, {x, s:0.5+vnoise(x,7)*0.2, lean:(vnoise(x,8)-0.5), id:9600+((x+2000)|0)});
+  }
+  for (let x=4340;x<9000;x+=260){
+    if (x<x0-160||x>x1+160) continue;
+    drawTree(ctx, {x, s:0.5+vnoise(x,7)*0.2, lean:(vnoise(x,8)-0.5), id:9600+x});
+  }
   // lamps
   for (let x=Math.floor(x0/380)*380;x<x1;x+=380){
     if (x<620||x>4100) continue;
@@ -2836,8 +2935,9 @@ function nudgeInit(){
   el.onclick=()=>{
     if (!NUDGE.target) return;
     const b=BAND[NUDGE.target.band]||BAND.ROW;
-    CAM.tx=clamp(NUDGE.target.x/b.pf, CAM.minX, CAM.maxX);
+    if (NUDGE.target.band!=='ROW' && CAM.tz>1.2) CAM.tz=0.85;   // foreground targets need the wide stage
     if (CAM.tz<0.7) CAM.tz=0.85;
+    CAM.tx=clamp(NUDGE.target.x/b.pf, camMinX(CAM.tz), camMaxX(CAM.tz));
   };
 }
 function nudgeText(){
@@ -2974,7 +3074,7 @@ function drawTownLife(ctx, rt){
       ctx.translate(sx,sy); ctx.scale(CAM.z*(i?-1:1),CAM.z);
       POSES.talk(ctx, p, (rt*0.5+i*0.4)%1);
       ctx.restore();
-      HIT.push({pid:p.pid, sx, sy:sy-46*CAM.z});
+      HIT.push({pid:p.pid, sx, sy:sy-46*CAM.z+CAM.fade*view.h*0.6});
     }
     const loopLen=40, el=(rt-st.t0)%loopLen, kk=Math.floor((rt-st.t0)/loopLen);
     if (el>=9 && !st.fired[kk] && CAM.z>0.5){
